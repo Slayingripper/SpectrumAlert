@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  spectrumalert:
+    build: .
+    container_name: spectrum-alert
+    restart: unless-stopped
+    
+    # Device access for RTL-SDR
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    
+    # Privileged mode for USB device access
+    privileged: true
+    
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SPECTRUM_MODE=interactive
+      - LOG_LEVEL=INFO
+    
+    # Volume mounts for persistent data
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - /dev:/dev
+    
+    # Network configuration
+    network_mode: host
+    
+    # Interactive mode by default
+    stdin_open: true
+    tty: true
+
+  # Service mode - continuous monitoring
+  spectrumalert-service:
+    build: .
+    container_name: spectrum-alert-service
+    restart: unless-stopped
+    
+    # Device access for RTL-SDR
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    
+    # Privileged mode for USB device access
+    privileged: true
+    
+    # Environment variables for service mode
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SPECTRUM_MODE=service
+      - LOG_LEVEL=INFO
+      - SERVICE_MODEL=latest  # Use latest trained model
+      - SERVICE_LITE_MODE=false
+      - SERVICE_ALERT_THRESHOLD=0.7
+    
+    # Volume mounts for persistent data
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - /dev:/dev
+    
+    # Network configuration
+    network_mode: host
+    
+    # Service mode command
+    command: ["python", "service_mode.py"]
+    
+    # Don't start by default (use profiles)
+    profiles:
+      - service
+
+  # Optional: Web dashboard (future enhancement)
+  spectrumalert-web:
+    build: .
+    container_name: spectrum-alert-web
+    restart: unless-stopped
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SPECTRUM_MODE=web
+    
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    
+    ports:
+      - "8080:8080"
+    
+    command: ["python", "web_interface.py"]
+    
+    # Don't start by default
+    profiles:
+      - web
