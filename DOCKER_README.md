@@ -59,6 +59,18 @@ Use interactive mode to:
 ```
 Service mode runs continuously in the background, monitoring spectrum and alerting on anomalies.
 
+### 4. Run Autonomous Mode (Full Automation)
+```bash
+./deploy.sh autonomous
+```
+**NEW!** Autonomous mode provides complete automation:
+- Collects RF data for 24 hours automatically
+- Trains ML models on collected data
+- Starts continuous anomaly monitoring
+- Periodically retrains models (weekly by default)
+
+This is perfect for "set it and forget it" deployments!
+
 ## Deployment Modes
 
 ### Interactive Mode
@@ -73,6 +85,20 @@ Features:
 - Model training
 - Manual monitoring
 - System diagnostics
+
+### Autonomous Mode (Recommended for Production)
+**NEW!** Fully automated end-to-end workflow:
+```bash
+docker-compose --profile autonomous up -d spectrumalert-autonomous
+```
+
+Features:
+- Automatic 24-hour data collection
+- Automatic model training
+- Continuous monitoring
+- Periodic retraining (weekly)
+- Zero human intervention required
+- Comprehensive status logging
 
 ### Service Mode
 Best for production deployment with continuous monitoring:
@@ -97,6 +123,9 @@ cp .env.example .env
 ```
 
 Key variables:
+- `COLLECTION_HOURS`: Hours of data to collect initially (default: 24)
+- `RETRAIN_INTERVAL_HOURS`: Hours between automatic retraining (default: 168 = weekly)
+- `MIN_TRAINING_SAMPLES`: Minimum samples required for training (default: 1000)
 - `SERVICE_MODEL`: Model to use (`latest` or specific filename)
 - `SERVICE_LITE_MODE`: Use lite mode for resource-constrained systems
 - `SERVICE_ALERT_THRESHOLD`: Anomaly detection threshold (0.0-1.0)
@@ -115,6 +144,7 @@ Data is persisted in these directories:
 ```bash
 ./deploy.sh build        # Build Docker image
 ./deploy.sh interactive  # Run interactive mode
+./deploy.sh autonomous   # Run autonomous mode (recommended)
 ./deploy.sh service      # Run service mode
 ```
 
@@ -139,6 +169,7 @@ For systems where Docker Compose has issues, use these alternative scripts:
 ```bash
 ./run_docker.sh build        # Build image
 ./run_docker.sh interactive  # Interactive mode
+./run_docker.sh autonomous   # Autonomous mode (24h + training)
 ./run_docker.sh service      # Service mode
 ./run_docker.sh status       # Check status
 ./run_docker.sh logs         # View logs

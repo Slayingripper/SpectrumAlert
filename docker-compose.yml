@@ -34,6 +34,48 @@ services:
     stdin_open: true
     tty: true
 
+  # Autonomous service - 24h data collection + training + monitoring
+  spectrumalert-autonomous:
+    build: .
+    container_name: spectrum-alert-autonomous
+    restart: unless-stopped
+    
+    # Device access for RTL-SDR
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    
+    # Privileged mode for USB device access
+    privileged: true
+    
+    # Environment variables for autonomous mode
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SPECTRUM_MODE=autonomous
+      - LOG_LEVEL=INFO
+      - COLLECTION_HOURS=24
+      - SERVICE_LITE_MODE=false
+      - SERVICE_ALERT_THRESHOLD=0.7
+      - RETRAIN_INTERVAL_HOURS=168  # Weekly retraining
+      - MIN_TRAINING_SAMPLES=1000
+    
+    # Volume mounts for persistent data
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - /dev:/dev
+    
+    # Network configuration
+    network_mode: host
+    
+    # Autonomous mode command
+    command: ["python", "autonomous_service.py"]
+    
+    # Don't start by default (use profiles)
+    profiles:
+      - autonomous
+
   # Service mode - continuous monitoring
   spectrumalert-service:
     build: .

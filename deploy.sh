@@ -109,6 +109,7 @@ show_usage() {
     echo "Commands:"
     echo "  build       Build the Docker image"
     echo "  interactive Run in interactive mode"
+    echo "  autonomous  Run autonomous mode (24h collection + training + monitoring)"
     echo "  service     Run in service mode (continuous monitoring)"
     echo "  stop        Stop all containers"
     echo "  logs        Show container logs"
@@ -119,6 +120,7 @@ show_usage() {
     echo "Examples:"
     echo "  $0 build                 # Build the image"
     echo "  $0 interactive           # Run interactive mode"
+    echo "  $0 autonomous            # Run autonomous mode"
     echo "  $0 service               # Run service mode"
     echo "  $0 logs spectrum-alert   # Show logs for interactive container"
     echo ""
@@ -153,6 +155,46 @@ case "${1:-help}" in
         else
             $COMPOSE_CMD up spectrumalert
         fi
+        ;;
+    
+    "autonomous")
+        check_docker
+        check_usb_permissions
+        print_status "Starting SpectrumAlert in autonomous mode (24h collection + training + monitoring)..."
+        print_status "This will:"
+        print_status "  1. Collect RF data for 24 hours"
+        print_status "  2. Automatically train ML models"
+        print_status "  3. Start continuous anomaly monitoring"
+        print_status "  4. Periodically retrain models (weekly)"
+        
+        if ! $COMPOSE_CMD ps &> /dev/null; then
+            print_warning "Docker Compose having issues, trying direct docker run..."
+            docker run -d --name spectrum-alert-autonomous \
+                --restart unless-stopped \
+                --device=/dev/bus/usb:/dev/bus/usb \
+                --privileged \
+                -e PYTHONUNBUFFERED=1 \
+                -e SPECTRUM_MODE=autonomous \
+                -e LOG_LEVEL=INFO \
+                -e COLLECTION_HOURS=24 \
+                -e SERVICE_LITE_MODE=false \
+                -e SERVICE_ALERT_THRESHOLD=0.7 \
+                -e RETRAIN_INTERVAL_HOURS=168 \
+                -e MIN_TRAINING_SAMPLES=1000 \
+                -v "$(pwd)/data:/app/data" \
+                -v "$(pwd)/models:/app/models" \
+                -v "$(pwd)/logs:/app/logs" \
+                -v "$(pwd)/config:/app/config" \
+                -v /dev:/dev \
+                --network host \
+                spectrumalert:latest python autonomous_service.py
+        else
+            $COMPOSE_CMD --profile autonomous up -d spectrumalert-autonomous
+        fi
+        print_success "Autonomous service started in background"
+        print_status "Use '$0 logs spectrum-alert-autonomous' to view logs"
+        print_status "Use '$0 status' to check progress"
+        print_status "Use '$0 stop' to stop the service"
         ;;
     
     "service")
@@ -199,8 +241,8 @@ case "${1:-help}" in
             $COMPOSE_CMD down
         fi
         # Also stop direct docker containers
-        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
-        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker stop spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
         print_success "All containers stopped"
         ;;
     
@@ -220,9 +262,15 @@ case "${1:-help}" in
         
         print_status "\nService status (if running):"
         if [ -f "logs/service_status.json" ]; then
+            echo "=== Standard Service Status ==="
             cat logs/service_status.json | python -m json.tool
-        else
-            echo "No service status file found"
+        fi
+        if [ -f "logs/autonomous_status.json" ]; then
+            echo "=== Autonomous Service Status ==="
+            cat logs/autonomous_status.json | python -m json.tool
+        fi
+        if [ ! -f "logs/service_status.json" ] && [ ! -f "logs/autonomous_status.json" ]; then
+            echo "No service status files found"
         fi
         ;;
     
@@ -232,8 +280,8 @@ case "${1:-help}" in
             $COMPOSE_CMD down --rmi all --volumes --remove-orphans 2>/dev/null || true
         fi
         # Clean up direct docker containers
-        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
-        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker stop spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
         docker rmi spectrumalert:latest 2>/dev/null || true
         docker system prune -f
         print_success "Cleanup completed"

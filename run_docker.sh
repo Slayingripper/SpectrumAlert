@@ -102,10 +102,38 @@ case "${1:-help}" in
         print_status "Stop service: $0 stop"
         ;;
     
+    "autonomous")
+        check_docker
+        check_image
+        
+        print_status "Starting SpectrumAlert autonomous mode..."
+        print_status "This will:"
+        print_status "  1. Collect RF data for 24 hours"
+        print_status "  2. Automatically train ML models"
+        print_status "  3. Start continuous anomaly monitoring"
+        print_status "  4. Periodically retrain models (weekly)"
+        
+        docker run -d --name spectrum-alert-autonomous --restart unless-stopped \
+            -e PYTHONUNBUFFERED=1 \
+            -e SPECTRUM_MODE=autonomous \
+            -e LOG_LEVEL=INFO \
+            -e COLLECTION_HOURS=24 \
+            -e SERVICE_LITE_MODE=false \
+            -e SERVICE_ALERT_THRESHOLD=0.7 \
+            -e RETRAIN_INTERVAL_HOURS=168 \
+            -e MIN_TRAINING_SAMPLES=1000 \
+            $DOCKER_ARGS $IMAGE_NAME python autonomous_service.py
+        
+        print_success "Autonomous service started"
+        print_status "View logs: $0 logs spectrum-alert-autonomous"
+        print_status "Check status: $0 status"
+        print_status "Stop service: $0 stop"
+        ;;
+    
     "stop")
         print_status "Stopping containers..."
-        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
-        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker stop spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
         print_success "Containers stopped"
         ;;
     
@@ -123,6 +151,11 @@ case "${1:-help}" in
             print_status "\nService status:"
             cat logs/service_status.json | python3 -m json.tool 2>/dev/null || cat logs/service_status.json
         fi
+        
+        if [ -f "logs/autonomous_status.json" ]; then
+            print_status "\nAutonomous service status:"
+            cat logs/autonomous_status.json | python3 -m json.tool 2>/dev/null || cat logs/autonomous_status.json
+        fi
         ;;
     
     "shell")
@@ -137,8 +170,8 @@ case "${1:-help}" in
     
     "clean")
         print_status "Cleaning up..."
-        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
-        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker stop spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service spectrum-alert-autonomous 2>/dev/null || true
         docker rmi $IMAGE_NAME 2>/dev/null || true
         docker system prune -f
         print_success "Cleanup completed"
@@ -159,6 +192,7 @@ case "${1:-help}" in
         echo "Commands:"
         echo "  build       Build Docker image"
         echo "  interactive Run interactive mode (alias: run)"
+        echo "  autonomous  Run autonomous mode (24h collection + training + monitoring)"
         echo "  service     Run service mode in background"
         echo "  stop        Stop all containers"
         echo "  logs [name] Show container logs"
@@ -170,6 +204,7 @@ case "${1:-help}" in
         echo "Examples:"
         echo "  $0 build                # Build image"
         echo "  $0 interactive          # Interactive mode"
+        echo "  $0 autonomous           # Autonomous mode (24h + training)"
         echo "  $0 service              # Background service"
         echo "  $0 logs                 # Show service logs"
         echo ""
