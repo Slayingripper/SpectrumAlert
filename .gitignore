@@ -163,7 +163,6 @@ main_simple.py
 rtl_recovery.py
 run_safe.py
 check_features.py
-start_spectrum_alert.sh
 
 # Data and model files (except in proper directories)
 /*.pkl
@@ -172,3 +171,6 @@ start_spectrum_alert.sh
 
 # Log files in root
 /*.log
+
+# Environment files
+.env

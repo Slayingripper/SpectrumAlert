@@ -28,8 +28,19 @@ This guide explains how to deploy SpectrumAlert using Docker for easy deployment
 
 ## Quick Start
 
+### For Raspberry Pi Users
+If you encounter Docker Compose issues (common on Raspberry Pi), use the simplified script:
+```bash
+chmod +x run_docker.sh troubleshoot.sh
+./troubleshoot.sh  # Check system compatibility
+./run_docker.sh build
+./run_docker.sh interactive
+```
+
+### For Standard Systems
 ### 1. Build the Docker Image
 ```bash
+chmod +x deploy.sh
 ./deploy.sh build
 ```
 
@@ -120,6 +131,25 @@ Data is persisted in these directories:
 ./deploy.sh clean        # Remove all containers and images
 ```
 
+## Alternative Scripts (Raspberry Pi Compatible)
+
+For systems where Docker Compose has issues, use these alternative scripts:
+
+### Simple Docker Runner
+```bash
+./run_docker.sh build        # Build image
+./run_docker.sh interactive  # Interactive mode
+./run_docker.sh service      # Service mode
+./run_docker.sh status       # Check status
+./run_docker.sh logs         # View logs
+./run_docker.sh stop         # Stop containers
+```
+
+### Troubleshooting Script
+```bash
+./troubleshoot.sh            # Diagnose Docker/RTL-SDR issues
+```
+
 ## Docker Compose Profiles
 
 ### Default Profile (Interactive)
@@ -141,6 +171,12 @@ docker-compose --profile web up -d
 Runs web dashboard interface (planned feature).
 
 ## Troubleshooting
+
+### Raspberry Pi Docker Compose Issues
+If you get `Not supported URL scheme http+docker` error:
+1. Run the troubleshooting script: `./troubleshoot.sh`
+2. Use the simple runner instead: `./run_docker.sh build && ./run_docker.sh interactive`
+3. For service mode: `./run_docker.sh service`
 
 ### RTL-SDR Not Detected
 1. Check USB connection: `lsusb | grep -i realtek`

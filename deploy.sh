@@ -34,7 +34,19 @@ check_docker() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
+    # Check if docker daemon is running
+    if ! docker info &> /dev/null; then
+        print_error "Docker daemon is not running. Please start Docker service:"
+        echo "sudo systemctl start docker"
+        exit 1
+    fi
+    
+    # Check for docker-compose or docker compose
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &> /dev/null; then
+        COMPOSE_CMD="docker compose"
+    else
         print_error "Docker Compose is not installed. Please install Docker Compose first."
         exit 1
     fi
@@ -125,7 +137,22 @@ case "${1:-help}" in
         check_usb_permissions
         print_status "Starting SpectrumAlert in interactive mode..."
         
-        docker-compose up spectrumalert
+        # Try docker run first as fallback for compose issues
+        if ! $COMPOSE_CMD ps &> /dev/null; then
+            print_warning "Docker Compose having issues, trying direct docker run..."
+            docker run -it --rm \
+                --device=/dev/bus/usb:/dev/bus/usb \
+                --privileged \
+                -v "$(pwd)/data:/app/data" \
+                -v "$(pwd)/models:/app/models" \
+                -v "$(pwd)/logs:/app/logs" \
+                -v "$(pwd)/config:/app/config" \
+                -v /dev:/dev \
+                --network host \
+                spectrumalert:latest
+        else
+            $COMPOSE_CMD up spectrumalert
+        fi
         ;;
     
     "service")
@@ -139,15 +166,41 @@ case "${1:-help}" in
             print_warning "You may need to train models first in interactive mode."
         fi
         
-        docker-compose --profile service up -d spectrumalert-service
+        if ! $COMPOSE_CMD ps &> /dev/null; then
+            print_warning "Docker Compose having issues, trying direct docker run..."
+            docker run -d --name spectrum-alert-service \
+                --restart unless-stopped \
+                --device=/dev/bus/usb:/dev/bus/usb \
+                --privileged \
+                -e PYTHONUNBUFFERED=1 \
+                -e SPECTRUM_MODE=service \
+                -e LOG_LEVEL=INFO \
+                -e SERVICE_MODEL=latest \
+                -e SERVICE_LITE_MODE=false \
+                -e SERVICE_ALERT_THRESHOLD=0.7 \
+                -v "$(pwd)/data:/app/data" \
+                -v "$(pwd)/models:/app/models" \
+                -v "$(pwd)/logs:/app/logs" \
+                -v "$(pwd)/config:/app/config" \
+                -v /dev:/dev \
+                --network host \
+                spectrumalert:latest python service_mode.py
+        else
+            $COMPOSE_CMD --profile service up -d spectrumalert-service
+        fi
         print_success "Service started in background"
-        print_status "Use '$0 logs spectrumalert-service' to view logs"
+        print_status "Use '$0 logs spectrum-alert-service' to view logs"
         print_status "Use '$0 stop' to stop the service"
         ;;
     
     "stop")
         print_status "Stopping all SpectrumAlert containers..."
-        docker-compose down
+        if command -v $COMPOSE_CMD &> /dev/null && $COMPOSE_CMD ps &> /dev/null; then
+            $COMPOSE_CMD down
+        fi
+        # Also stop direct docker containers
+        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
         print_success "All containers stopped"
         ;;
     
@@ -159,7 +212,11 @@ case "${1:-help}" in
     
     "status")
         print_status "Container status:"
-        docker-compose ps
+        if command -v $COMPOSE_CMD &> /dev/null && $COMPOSE_CMD ps &> /dev/null; then
+            $COMPOSE_CMD ps
+        else
+            docker ps -a --filter "name=spectrum-alert"
+        fi
         
         print_status "\nService status (if running):"
         if [ -f "logs/service_status.json" ]; then
@@ -171,7 +228,13 @@ case "${1:-help}" in
     
     "clean")
         print_status "Cleaning up containers and images..."
-        docker-compose down --rmi all --volumes --remove-orphans
+        if command -v $COMPOSE_CMD &> /dev/null; then
+            $COMPOSE_CMD down --rmi all --volumes --remove-orphans 2>/dev/null || true
+        fi
+        # Clean up direct docker containers
+        docker stop spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker rm spectrum-alert spectrum-alert-service 2>/dev/null || true
+        docker rmi spectrumalert:latest 2>/dev/null || true
         docker system prune -f
         print_success "Cleanup completed"
         ;;
