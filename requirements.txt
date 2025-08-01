@@ -4,6 +4,6 @@ pyrtlsdr>=0.2.9
 paho-mqtt>=1.5.1
 joblib>=1.0.0
 configparser>=5.0.0
-SoapySDR>=0.8.0
 matplotlib>=3.3.0
 pandas>=1.3.0
+scipy>=1.7.0

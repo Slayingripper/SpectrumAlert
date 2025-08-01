@@ -1,5 +1,5 @@
 # SpectrumAlert Docker Image
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 # Install system dependencies for RTL-SDR
 RUN apt-get update && apt-get install -y \
@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     build-essential \
     udev \
+    python3-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user (non-root for security)

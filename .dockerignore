@@ -1,0 +1,62 @@
+# Docker ignore file for SpectrumAlert
+
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache
+
+# Test files
+test_*.py
+
+# Documentation
+*.md
+docs/
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Docker files
+docker-compose.yml
+Dockerfile
+.dockerignore
+deploy.sh
+
+# Local data (will be mounted as volumes)
+/data/*
+/models/*
+/logs/*
+
+# Temporary files
+*.tmp
+*.temp
