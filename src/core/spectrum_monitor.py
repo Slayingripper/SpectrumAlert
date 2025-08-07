@@ -210,17 +210,42 @@ class SpectrumMonitor:
         try:
             self._monitoring_stats['anomalies_detected'] += 1
             
-            logger.warning(f"ANOMALY DETECTED at {frequency/1e6:.3f} MHz")
-            logger.warning(f"  Score: {anomaly_result.get('score', 0):.3f}")
-            logger.warning(f"  Confidence: {anomaly_result.get('confidence', 0):.3f}")
-            logger.warning(f"  Signal Strength: {signal_strength:.1f} dB")
+            # Enhanced frequency logging with exact precision
+            freq_mhz = frequency / 1e6
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             
-            # Send MQTT alert
+            logger.warning(f"🚨 ANOMALY #{self._monitoring_stats['anomalies_detected']} DETECTED")
+            logger.warning(f"   ⏰ Time: {timestamp}")
+            logger.warning(f"   📡 Exact Frequency: {frequency:,} Hz ({freq_mhz:.6f} MHz)")
+            logger.warning(f"   📊 Anomaly Score: {anomaly_result.get('score', 0):.4f}")
+            logger.warning(f"   🎯 Confidence: {anomaly_result.get('confidence', 0):.4f}")
+            logger.warning(f"   📶 Signal Strength: {signal_strength:.2f} dB")
+            
+            # Log to dedicated anomaly frequency file
+            try:
+                anomaly_log_file = f"logs/anomaly_frequencies_{datetime.now().strftime('%Y%m%d')}.log"
+                import os
+                os.makedirs("logs", exist_ok=True)
+                
+                with open(anomaly_log_file, 'a') as f:
+                    f.write(f"[{timestamp}] ANOMALY #{self._monitoring_stats['anomalies_detected']}: "
+                           f"{int(frequency):,} Hz ({freq_mhz:.6f} MHz) | "
+                           f"Score: {anomaly_result.get('score', 0):.4f} | "
+                           f"Signal: {signal_strength:.2f} dB | "
+                           f"Confidence: {anomaly_result.get('confidence', 0):.4f}\n")
+            except Exception as log_error:
+                logger.error(f"Failed to write anomaly log: {log_error}")
+            
+            # Send MQTT alert with detailed frequency information
             coordinates = (self.config.receiver.latitude, self.config.receiver.longitude)
             metadata = {
+                'exact_frequency_hz': int(frequency),
+                'frequency_mhz_precise': freq_mhz,
                 'signal_strength_db': signal_strength,
+                'anomaly_number': self._monitoring_stats['anomalies_detected'],
                 'confidence': anomaly_result.get('confidence', 0),
-                'lite_mode': self.lite_mode
+                'lite_mode': self.lite_mode,
+                'timestamp_precise': timestamp
             }
             
             success = self.mqtt_manager.publish_anomaly(
