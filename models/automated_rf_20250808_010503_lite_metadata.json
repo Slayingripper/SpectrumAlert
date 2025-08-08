@@ -1,0 +1,13 @@
+{
+  "model_type": "RandomForestClassifier",
+  "lite_mode": true,
+  "accuracy": 0.10236220472440945,
+  "n_features": 2,
+  "n_samples": 633,
+  "n_devices": 10,
+  "created_at": "2025-08-08T01:10:04.331402",
+  "feature_names": [
+    "Mean_Amplitude",
+    "Std_Amplitude"
+  ]
+}

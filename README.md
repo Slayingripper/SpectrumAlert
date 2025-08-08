@@ -1,54 +1,253 @@
-# Spectrum Alert
+# SpectrumAlert v1.1
 
-**Spectrum Alert** is a software suite designed to monitor ham radio frequencies for anomalies, perform radio frequency (RF) fingerprinting, and provide real-time insights into radio spectrum usage. This tool can be deployed on multiple devices to perform direction finding and detect illegal or unauthorized transmissions.
+**SpectrumAlert** is an advanced RF spectrum monitoring and anomaly detection system designed for ham radio frequency monitoring, RF fingerprinting, and real-time spectrum analysis. Built with modern Python architecture and professional CLI interface.
 
-## Table of Contents
-- [Spectrum Alert](#spectrum-alert)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Installation](#installation)
-    - [Requirements:](#requirements)
-    - [Installation Steps:](#installation-steps)
-  - [Usage](#usage)
-    - [Menu Options:](#menu-options)
-    - [Use Cases:](#use-cases)
-    - [Example Scenarios:](#example-scenarios)
-      - [Scenario 1: Simple Spectrum Monitoring](#scenario-1-simple-spectrum-monitoring)
-      - [Scenario 2: Automated Process](#scenario-2-automated-process)
-      - [Scenario 3: Multi-device Direction Finding](#scenario-3-multi-device-direction-finding)
-  - [Anomaly Detection and Heatmap](#anomaly-detection-and-heatmap)
-    - [Heatmap of Suspected Devices and Anomalies:](#heatmap-of-suspected-devices-and-anomalies)
-    - [ToDo](#todo)
-    - [License](#license)
+## 🚀 Features
 
-## Features
-- **RF Spectrum Monitoring**: Continuously scans configured ham bands to detect anomalies in RF signal characteristics.
-- **Data Gathering**: Collects IQ (In-phase and Quadrature) data from an RTL-SDR device, which can be used for analysis and model training.
-- **Anomaly Detection**: Uses machine learning (Isolation Forest) to detect anomalies in radio signal characteristics.
-- **RF Fingerprinting**: Trains models to identify and differentiate between various radio devices based on unique signal features.
-- **Real-time Monitoring**: Publishes real-time signal strength, anomalies, and other metrics via MQTT for remote monitoring.
-- **Lite Versions**: Optimized versions for Raspberry Pi and other low-resource devices.
-- **Automated Process**: A single workflow that automates data gathering, model training, and spectrum monitoring.
-- **Direction Finding**: When deployed on multiple devices, Spectrum Alert can help triangulate the source of illegal or unauthorized transmissions by analyzing anomalies detected across multiple receivers.
+### Core Capabilities
+- **Real-time Spectrum Monitoring**: Continuous scanning of configured frequency bands
+- **Machine Learning Anomaly Detection**: Isolation Forest-based anomaly detection with adaptive thresholds
+- **RF Fingerprinting**: Device identification and classification using unique signal characteristics
+- **Exact Frequency Detection**: Pinpoint anomaly detection with 6-decimal precision frequency logging
+- **Multi-mode Detection**: Lite mode (2 features) and Full mode (12 features) for different performance needs
 
-## Installation
+### Modern Architecture
+- **Professional CLI Interface**: Rich console output with tables, colors, and progress indicators
+- **Clean Architecture**: Domain-driven design with clear separation of concerns
+- **Type Safety**: Comprehensive type hints throughout the codebase
+- **Error Handling**: Robust exception hierarchy with recovery mechanisms
+- **Configuration Management**: Structured configuration with validation
 
-### Requirements:
-- Python 3.x
+### Integration & Deployment
+- **MQTT Integration**: Real-time publishing of anomalies and system status
+- **Docker Support**: Complete containerization with autonomous service mode
+- **Raspberry Pi Compatible**: Optimized for low-resource embedded deployments
+- **Data Persistence**: Structured storage of spectrum data, features, and anomalies
+- **System Monitoring**: Health checks and resource monitoring
+
+## 📦 Installation
+
+### Quick Start
+```bash
+# Clone the repository
+git clone https://github.com/Slayingripper/SpectrumAlert.git
+cd SpectrumAlert
+
+# Install the package
+pip install -e .
+
+# Verify installation
+spectrum-alert --help
+```
+
+### Requirements
+- Python 3.8+
 - RTL-SDR device
-- Required Python packages: `numpy`, `scikit-learn`, `rtlsdr`, `configparser`, `paho-mqtt`, `joblib`
-  
-### Installation Steps:
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Slayingripper/SpectrumAlert.git
-   cd SpectrumAlert
-   ```
+- Modern package dependencies (automatically installed)
 
-2. Install required Python packages:
-   ```bash
-   pip install numpy scikit-learn pyrtlsdr configparser paho-mqtt joblib
-   ```
+## 🎯 Usage
+
+### Command Line Interface
+
+#### Basic Commands
+```bash
+# Show help
+spectrum-alert --help
+
+# Check system status
+spectrum-alert monitor status
+
+# View detailed system metrics
+spectrum-alert system status
+
+# Show version information
+spectrum-alert version
+```
+
+#### Spectrum Monitoring
+```bash
+# Start monitoring FM radio band in full mode
+spectrum-alert monitor start --freq-start 88 --freq-end 108 --mode full
+
+# Monitor with specific duration
+spectrum-alert monitor start --freq-start 144 --freq-end 148 --mode lite --duration 300
+
+# Monitor with custom session name
+spectrum-alert monitor start --freq-start 430 --freq-end 440 --mode full --name "UHF_Sweep"
+```
+
+#### Model Training
+```bash
+# Train models using last 7 days of data
+spectrum-alert train models --mode full --days 7
+
+# Train lite models
+spectrum-alert train models --mode lite --days 3
+```
+
+### Configuration
+
+The system uses structured configuration files in `config/config.ini`:
+
+```ini
+[GENERAL]
+frequency_start = 144000000
+frequency_end = 148000000
+sample_rate = 2400000
+gain = 40
+
+[MONITORING]
+step_size = 1000000
+delay = 0.01
+detection_mode = full
+
+[MQTT]
+broker = localhost
+port = 1883
+username = 
+password = 
+```
+
+## 🏗️ Architecture
+
+### Package Structure
+```
+spectrum_alert/
+├── cli/                    # Modern CLI interface
+├── core/                   # Business logic
+│   ├── domain/            # Domain models (Pydantic)
+│   ├── services/          # Core services
+│   └── exceptions.py      # Custom exceptions
+├── infrastructure/        # External integrations
+│   ├── sdr/              # SDR interfaces
+│   ├── messaging/        # MQTT communication
+│   ├── storage/          # Data persistence
+│   └── monitoring/       # System monitoring
+└── application/           # Use cases and workflows
+```
+
+### Key Components
+
+#### Domain Models
+- `SpectrumData`: RF spectrum data representation
+- `AnomalyDetection`: Anomaly detection results with confidence scores
+- `MonitoringSession`: Session management and statistics
+- `FeatureVector`: ML feature extraction results
+
+#### Infrastructure Services
+- `SDRInterface`: RTL-SDR device management with error recovery
+- `MQTTManager`: Robust MQTT communication with reconnection
+- `DataStorage`: Structured data persistence and retrieval
+- `SystemMonitor`: Resource monitoring and health checks
+
+## 🐳 Docker Deployment
+
+### Basic Deployment
+```bash
+# Build and run
+docker build -t spectrum-alert .
+docker run --privileged --device=/dev/bus/usb spectrum-alert
+
+# Using Docker Compose
+docker-compose up
+```
+
+### Autonomous Service Mode
+```bash
+# 24-hour automated operation
+docker-compose --profile autonomous up
+```
+
+## 📊 Monitoring Output
+
+### System Status Dashboard
+```
+Monitoring Status
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
+┃ Component     ┃ Status    ┃ Details           ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
+│ SDR Device    │ Available │ RTL-SDR detected  │
+│ System Health │ Healthy   │ CPU: 16.8%        │
+│ Data Storage  │ Ready     │ 0 anomalies today │
+└───────────────┴───────────┴───────────────────┘
+```
+
+### Resource Monitoring
+```
+System Status
+┏━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Resource ┃ Usage ┃ Available ┃ Total    ┃
+┡━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━┩
+│ CPU      │ 18.6% │ 24 cores  │ 24 cores │
+│ Memory   │ 27.1% │ 45.7 GB   │ 62.7 GB  │
+│ Disk     │ 67.4% │ 285.1 GB  │ 915.3 GB │
+└──────────┴───────┴───────────┴──────────┘
+```
+
+## 🔧 Advanced Features
+
+### Anomaly Detection Modes
+- **Lite Mode**: 2 features (mean_amplitude, std_amplitude) - Fast, low resource
+- **Full Mode**: 12 features including spectral, statistical, and cyclostationary features
+
+### Exact Frequency Logging
+Anomalies are logged with precise frequency information:
+```
+2025-08-08 12:30:45,123 - ANOMALY DETECTED at 146.520000 MHz (confidence: 0.87)
+```
+
+### MQTT Integration
+Real-time publishing of:
+- Anomaly detections with metadata
+- System health status
+- Monitoring session statistics
+- Error and warning conditions
+
+## 📈 Performance
+
+### Optimized Scanning
+- Fast scanning: 1MHz steps with 0.01s delays
+- Configurable contamination rates for different RF environments
+- Adaptive thresholds based on historical data
+
+### Resource Efficiency
+- Lite mode for Raspberry Pi deployment
+- Memory-efficient data structures
+- Optimized feature extraction algorithms
+
+## 🛠️ Development
+
+### Modern Python Practices
+- Type hints throughout
+- Pydantic data validation
+- Clean Architecture principles
+- Comprehensive error handling
+- Rich CLI interface
+
+### Extensibility
+- Plugin-ready architecture
+- Interface-based design
+- Dependency injection ready
+- Easy to add new SDR backends
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes following the existing architecture
+4. Add tests for new functionality
+5. Submit a pull request
+
+## 📞 Support
+
+For issues, feature requests, or questions:
+- Open an issue on GitHub
+- Check existing documentation
+- Review the CLI help system: `spectrum-alert --help`
 
 3. Connect your RTL-SDR device to your system.
 

@@ -1,0 +1,162 @@
+# Modern Python project configuration
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectrum-alert"
+version = "1.1.0"
+description = "Advanced RF spectrum monitoring and anomaly detection system"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "SpectrumAlert Team"}
+]
+keywords = ["rf", "sdr", "anomaly-detection", "spectrum-monitoring"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "numpy>=1.21.0",
+    "scikit-learn>=1.0.0",
+    "pyrtlsdr>=0.2.9",
+    "paho-mqtt>=1.5.1",
+    "joblib>=1.0.0",
+    "matplotlib>=3.3.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "asyncio-mqtt>=0.13.0",
+    "typer>=0.9.0",
+    "structlog>=23.0.0",
+    "dependency-injector>=4.41.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "flake8>=6.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.4.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.20.0",
+]
+test = [
+    "hypothesis>=6.70.0",
+    "factory-boy>=3.2.0",
+    "freezegun>=1.2.0",
+]
+
+[project.scripts]
+spectrum-alert = "spectrum_alert.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/spectrum-alert"
+Documentation = "https://spectrum-alert.readthedocs.io/"
+Repository = "https://github.com/yourusername/spectrum-alert.git"
+"Bug Tracker" = "https://github.com/yourusername/spectrum-alert/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spectrum_alert*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["spectrum_alert"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pyrtlsdr.*",
+    "paho.mqtt.*",
+    "joblib.*",
+    "sklearn.*",
+    "matplotlib.*",
+    "scipy.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "e2e: marks tests as end-to-end tests",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["spectrum_alert"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

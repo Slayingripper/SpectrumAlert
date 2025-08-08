@@ -1,0 +1,25 @@
+{
+  "model_type": "IsolationForest",
+  "lite_mode": false,
+  "contamination": 0.05,
+  "n_features": 12,
+  "n_samples": 44,
+  "n_anomalies": 3,
+  "anomaly_ratio": 0.06818181818181818,
+  "silhouette_score": 0.43725685326510727,
+  "created_at": "2025-08-08T00:28:29.555765",
+  "feature_names": [
+    "Mean_Amplitude",
+    "Std_Amplitude",
+    "Mean_FFT_Magnitude",
+    "Std_FFT_Magnitude",
+    "Skew_Amplitude",
+    "Kurt_Amplitude",
+    "Skew_Phase",
+    "Kurt_Phase",
+    "Cyclo_Autocorr",
+    "Spectral_Entropy",
+    "PAPR",
+    "Band_Energy_Ratio"
+  ]
+}
