@@ -8,7 +8,7 @@ import csv
 import logging
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from spectrum_alert.core.exceptions import StorageError
 from spectrum_alert.core.domain.models import SpectrumData, AnomalyDetection, FeatureVector
 
@@ -140,8 +140,19 @@ class DataStorage:
             
             # Find feature files for the specified mode
             files = []
+            cutoff = datetime.now() - timedelta(days=days)
             for filename in os.listdir(feature_dir):
                 if filename.startswith(f"features_") and filename.endswith(f"_{mode}.csv"):
+                    # Optional: filter by date prefix in filename if present
+                    try:
+                        # filename format: features_YYYYMMDD_mode.csv
+                        date_str = filename.split('_')[1]
+                        file_date = datetime.strptime(date_str, '%Y%m%d')
+                        if file_date < cutoff:
+                            continue
+                    except Exception:
+                        # If parsing fails, include the file
+                        pass
                     filepath = os.path.join(feature_dir, filename)
                     files.append(filepath)
             
@@ -176,7 +187,6 @@ class DataStorage:
             total_count = 0
             
             # Generate date strings for the last N days
-            from datetime import timedelta
             current_date = datetime.now()
             
             for i in range(days):
@@ -196,3 +206,37 @@ class DataStorage:
         except Exception as e:
             logger.error(f"Error getting anomaly count: {e}")
             return 0
+
+    def cleanup_old_data(self, max_age_days: int = 30) -> Dict[str, int]:
+        """Remove data files older than specified days across all data folders.
+        Returns a dict with counts of removed files per category.
+        """
+        removed = {"spectrum": 0, "features": 0, "anomalies": 0, "logs": 0}
+        try:
+            cutoff_ts = (datetime.now() - timedelta(days=max_age_days)).timestamp()
+            # Map subfolders to counters key
+            folders = {
+                os.path.join(self.data_dir, "spectrum"): "spectrum",
+                os.path.join(self.data_dir, "features"): "features",
+                os.path.join(self.data_dir, "anomalies"): "anomalies",
+                os.path.join(self.data_dir, "logs"): "logs",
+            }
+            for folder, key in folders.items():
+                if not os.path.isdir(folder):
+                    continue
+                for name in os.listdir(folder):
+                    path = os.path.join(folder, name)
+                    try:
+                        if os.path.isfile(path) and os.path.getmtime(path) < cutoff_ts:
+                            os.remove(path)
+                            removed[key] += 1
+                    except Exception as e:
+                        logger.debug(f"Skip removing {path}: {e}")
+            logger.info(
+                f"Cleanup complete (>{max_age_days}d): "
+                f"spectrum={removed['spectrum']}, features={removed['features']}, "
+                f"anomalies={removed['anomalies']}, logs={removed['logs']}"
+            )
+        except Exception as e:
+            logger.error(f"Error during data cleanup: {e}")
+        return removed

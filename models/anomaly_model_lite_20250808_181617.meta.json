@@ -1,0 +1,10 @@
+{
+  "mode": "lite",
+  "created_at": "20250808_181617",
+  "n_samples": 1850,
+  "n_features": 2,
+  "feature_names": [
+    "mean_amplitude",
+    "std_amplitude"
+  ]
+}

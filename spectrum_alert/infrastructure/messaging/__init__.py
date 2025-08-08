@@ -18,12 +18,25 @@ class MQTTManager:
     """Manages MQTT communications for SpectrumAlert"""
     
     def __init__(self, broker: str, port: int = 1883, username: Optional[str] = None, 
-                 password: Optional[str] = None):
+                 password: Optional[str] = None, client_id: Optional[str] = None,
+                 topic_prefix: str = "spectrum_alert", qos: int = 1, retain: bool = False,
+                 keepalive_seconds: int = 60, tls_enabled: bool = False):
         self.broker = broker
         self.port = port
         self.username = username
         self.password = password
-        self.client = mqtt.Client()
+        self.client_id = client_id or "spectrum_alert"
+        self.topic_prefix = topic_prefix.rstrip('/')
+        self.qos = int(qos)
+        self.retain = bool(retain)
+        self.keepalive_seconds = int(keepalive_seconds)
+        self.tls_enabled = bool(tls_enabled)
+        # Create client with client_id
+        try:
+            self.client = mqtt.Client(client_id=self.client_id)
+        except TypeError:
+            # Fallback for older paho versions
+            self.client = mqtt.Client()
         self.connected = False
         self.message_callbacks: Dict[str, Callable] = {}
         self._lock = threading.Lock()
@@ -39,6 +52,12 @@ class MQTTManager:
         # Set authentication if provided
         if self.username and self.password:
             self.client.username_pw_set(self.username, self.password)
+        # Enable TLS if configured
+        if self.tls_enabled:
+            try:
+                self.client.tls_set()
+            except Exception as e:
+                logger.warning(f"Failed to enable TLS: {e}")
     
     def _on_connect(self, client, userdata, flags, rc):
         """Callback for successful connection"""
@@ -75,16 +94,20 @@ class MQTTManager:
         """Callback for published messages"""
         logger.debug(f"Message {mid} published successfully")
     
-    def connect(self, timeout: int = 60) -> bool:
-        """Connect to MQTT broker"""
+    def connect(self, wait_timeout: int = 10) -> bool:
+        """Connect to MQTT broker
+        
+        Args:
+            wait_timeout: Seconds to wait for connection establishment
+        """
         try:
             logger.info(f"Connecting to MQTT broker at {self.broker}:{self.port}")
-            self.client.connect(self.broker, self.port, timeout)
+            self.client.connect(self.broker, self.port, self.keepalive_seconds)
             self.client.loop_start()
             
             # Wait for connection
             start_time = time.time()
-            while not self.connected and (time.time() - start_time) < timeout:
+            while not self.connected and (time.time() - start_time) < wait_timeout:
                 time.sleep(0.1)
             
             return self.connected
@@ -117,14 +140,14 @@ class MQTTManager:
                 'details': details or {}
             }
             
-            topic = "spectrum_alert/anomaly"
-            result = self.client.publish(topic, json.dumps(message))
+            topic = f"{self.topic_prefix}/anomaly"
+            result = self.client.publish(topic, json.dumps(message), qos=self.qos, retain=self.retain)
             
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            if getattr(result, 'rc', 0) == mqtt.MQTT_ERR_SUCCESS:
                 logger.debug(f"Anomaly published to {topic}")
                 return True
             else:
-                logger.error(f"Failed to publish anomaly: {result.rc}")
+                logger.error(f"Failed to publish anomaly: {getattr(result, 'rc', 'unknown')}" )
                 return False
         except Exception as e:
             logger.error(f"Error publishing anomaly: {e}")
@@ -144,14 +167,14 @@ class MQTTManager:
                 'details': details or {}
             }
             
-            topic = "spectrum_alert/status"
-            result = self.client.publish(topic, json.dumps(message))
+            topic = f"{self.topic_prefix}/status"
+            result = self.client.publish(topic, json.dumps(message), qos=self.qos, retain=self.retain)
             
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            if getattr(result, 'rc', 0) == mqtt.MQTT_ERR_SUCCESS:
                 logger.debug(f"Status published to {topic}")
                 return True
             else:
-                logger.error(f"Failed to publish status: {result.rc}")
+                logger.error(f"Failed to publish status: {getattr(result, 'rc', 'unknown')}" )
                 return False
         except Exception as e:
             logger.error(f"Error publishing status: {e}")

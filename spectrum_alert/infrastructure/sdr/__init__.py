@@ -1,5 +1,5 @@
 """
-SDR interface for SpectrumAlert v3.0 with enhanced error handling
+SDR interface for SpectrumAlert v1.1 with enhanced error handling
 """
 
 import logging
@@ -35,7 +35,7 @@ class SDRInterface(ABC):
         self.device_args = device_args or {}
         self._sample_rate: Optional[float] = None
         self._center_freq: Optional[float] = None
-        self._gain: Optional[float | str] = None
+        self._gain: Optional[Union[float, str]] = None
         self._is_open = False
         self._retry_count = 0
         self._max_retries = 3
@@ -114,7 +114,7 @@ class RTLSDRInterface(SDRInterface):
     def __init__(self, device_index: int = 0, device_args: Optional[Dict[str, Any]] = None):
         super().__init__(device_args)
         self.device_index = device_index
-        self.sdr: Optional['RtlSdr'] = None
+        self.sdr = None
     
     def open(self) -> None:
         """Open the RTL-SDR device"""
@@ -189,3 +189,7 @@ class RTLSDRInterface(SDRInterface):
         except Exception as e:
             logger.error(f"Error setting gain: {e}")
             raise SDRConfigurationError(f"Failed to set gain: {e}")
+
+
+# Export the main classes
+__all__ = ['SDRInterface', 'RTLSDRInterface', 'SDRConnectionError', 'SDRConfigurationError']
