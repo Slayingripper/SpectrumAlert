@@ -35,6 +35,8 @@ class AutonomousCycleConfig:
     detect_during_collection: bool = False  # disable detection in Phase 1 by default
     monitor_window_ms: float = 200.0  # analysis window per read during monitoring
     per_frequency_hold_seconds: float = 10.0  # how long to stay on each freq before hopping
+    # New: Continuous learning support
+    continuous_learning: bool = False  # when True, train every cycle to adapt over time
 
 
 class AutonomousLearningUseCase:
@@ -565,6 +567,9 @@ class AutonomousLearningUseCase:
     
     def _should_train(self) -> bool:
         """Determine if training should be performed"""
+        # Always train when continuous learning is enabled
+        if getattr(self.config, 'continuous_learning', False):
+            return True
         if self.last_training_time is None:
             return True  # First training
         

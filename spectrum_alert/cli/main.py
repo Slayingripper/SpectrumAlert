@@ -118,6 +118,9 @@ def start_monitoring(
                 cooldown_s=novelty_cooldown_s,
                 score_delta=novelty_score_delta,
             )
+            anomaly_use_case.set_allowed_frequency_range(freq_start_hz, freq_end_hz)
+            # Stronger gating for start to reduce false positives
+            anomaly_use_case.configure_gating(min_snr_db=10.0, min_prominence_db=8.0, local_window_bins=5, neighbor_support_db=4.0)
         except Exception:
             pass
         
@@ -325,7 +328,8 @@ def autonomous_monitoring(
     mqtt_topic_prefix: str = typer.Option("spectrum_alert", "--mqtt-topic-prefix", help="MQTT topic prefix"),
     mqtt_username: Optional[str] = typer.Option(None, "--mqtt-username", help="MQTT username"),
     mqtt_password: Optional[str] = typer.Option(None, "--mqtt-password", help="MQTT password"),
-    mqtt_tls: bool = typer.Option(False, "--mqtt-tls", help="Enable TLS for MQTT")
+    mqtt_tls: bool = typer.Option(False, "--mqtt-tls", help="Enable TLS for MQTT"),
+    continuous_learning: bool = typer.Option(False, "--continuous-learning", help="Train every cycle to adapt the model over time"),
 ):
     """Start autonomous continuous learning and monitoring"""
     console.print("[bold green]🚀 Starting Autonomous Mode[/bold green]")
@@ -367,7 +371,8 @@ def autonomous_monitoring(
             detection_mode=mode,
             sample_rate=sample_rate_hz,
             gain=gain,
-            max_cycles=max_cycles
+            max_cycles=max_cycles,
+            continuous_learning=continuous_learning,
         )
         
         # Status callback for real-time updates
@@ -390,11 +395,11 @@ def autonomous_monitoring(
         # Apply threshold to anomaly detector
         try:
             autonomous_use_case.anomaly_use_case.set_threshold(threshold)
-            # Apply DC/edge notches to avoid center/edge false positives
             try:
                 autonomous_use_case.anomaly_use_case.set_dc_exclude_hz(dc_exclude_hz)
                 autonomous_use_case.anomaly_use_case.set_edge_exclude_hz(edge_exclude_hz)
-                # Slightly longer cooldown in autonomous mode to reduce spam
+                autonomous_use_case.anomaly_use_case.set_allowed_frequency_range(freq_start_hz, freq_end_hz)
+                autonomous_use_case.anomaly_use_case.configure_gating(min_snr_db=10.0, min_prominence_db=8.0, local_window_bins=5, neighbor_support_db=4.0)
                 autonomous_use_case.anomaly_use_case.configure_novelty(
                     enabled=True,
                     freq_tol_hz=max(3000.0, dc_exclude_hz),
@@ -456,6 +461,93 @@ def autonomous_monitoring(
     except Exception as e:
         console.print(f"[red]❌ Autonomous mode failed: {e}[/red]")
         raise typer.Exit(1)
+
+
+@monitor_app.command("autonomous-multiband")
+def autonomous_multiband(
+    bands: list[str] = typer.Option(..., "--band", "-b", help="Band range in MHz as START-END (e.g., 144-148). Repeat for multiple."),
+    data_collection_minutes: int = typer.Option(10, "--data-minutes", "-dm", help="Data collection duration per band (minutes)"),
+    training_interval_hours: int = typer.Option(1, "--training-hours", "-th", help="Training interval (hours)"),
+    monitoring_interval_minutes: int = typer.Option(15, "--monitor-minutes", "-mm", help="Monitoring duration per band (minutes)"),
+    mode: DetectionMode = typer.Option(DetectionMode.LITE, "--mode", "-m", help="Detection mode"),
+    sample_rate: float = typer.Option(1.024, "--sample-rate", "-sr", help="Sample rate in MHz"),
+    gain: float = typer.Option(25.0, "--gain", "-g", help="Gain in dB"),
+    threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
+    dc_exclude_hz: float = typer.Option(8000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
+    edge_exclude_hz: float = typer.Option(20000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges"),
+    mqtt_broker: Optional[str] = typer.Option(None, "--mqtt-broker", help="MQTT broker host (overrides config)"),
+    mqtt_port: int = typer.Option(1883, "--mqtt-port", help="MQTT broker port"),
+    mqtt_topic_prefix: str = typer.Option("spectrum_alert", "--mqtt-topic-prefix", help="MQTT topic prefix"),
+    mqtt_username: Optional[str] = typer.Option(None, "--mqtt-username", help="MQTT username"),
+    mqtt_password: Optional[str] = typer.Option(None, "--mqtt-password", help="MQTT password"),
+    mqtt_tls: bool = typer.Option(False, "--mqtt-tls", help="Enable TLS for MQTT"),
+    max_cycles_per_band: int = typer.Option(1, "--max-cycles-per-band", help="Number of autonomous cycles to run per band before switching"),
+    rounds: Optional[int] = typer.Option(None, "--rounds", help="Number of rotations across all bands (None=infinite)"),
+    continuous_learning: bool = typer.Option(False, "--continuous-learning", help="Train every cycle to adapt the model over time"),
+):
+    """Rotate autonomous training/monitoring across multiple bands (e.g., 2m and 70cm)."""
+    # Helper to parse band strings like "144-148"
+    def _parse_band(b: str) -> tuple[float, float]:
+        sep = "-" if "-" in b else (":" if ":" in b else None)
+        if not sep:
+            raise typer.BadParameter(f"Invalid band format '{b}'. Use START-END in MHz, e.g., 144-148")
+        parts = b.split(sep)
+        if len(parts) != 2:
+            raise typer.BadParameter(f"Invalid band format '{b}'. Use START-END in MHz, e.g., 144-148")
+        try:
+            a, c = float(parts[0].strip()), float(parts[1].strip())
+        except ValueError:
+            raise typer.BadParameter(f"Invalid numbers in band '{b}'")
+        if c <= a:
+            raise typer.BadParameter(f"Band end must be > start in '{b}'")
+        return a, c
+
+    band_ranges_mhz: list[tuple[float, float]] = []
+    for b in bands:
+        band_ranges_mhz.append(_parse_band(b))
+
+    console.print("[bold green]🚀 Starting Autonomous Multi-Band Mode[/bold green]")
+    console.print("Bands:")
+    for a, c in band_ranges_mhz:
+        console.print(f" • {a}-{c} MHz")
+
+    # Rotate through bands
+    rot = 0
+    try:
+        while rounds is None or rot < rounds:
+            rot += 1
+            console.print(f"\n[bold yellow]🔁 Rotation {rot}{'' if rounds is None else f'/{rounds}'}[/bold yellow]")
+            for a, c in band_ranges_mhz:
+                console.print(f"\n[bold cyan]▶ Band {a}-{c} MHz[/bold cyan]")
+                try:
+                    autonomous_monitoring(
+                        frequency_start=a,
+                        frequency_end=c,
+                        data_collection_minutes=data_collection_minutes,
+                        training_interval_hours=training_interval_hours,
+                        monitoring_interval_minutes=monitoring_interval_minutes,
+                        mode=mode,
+                        max_cycles=max_cycles_per_band,
+                        sample_rate=sample_rate,
+                        gain=gain,
+                        threshold=threshold,
+                        dc_exclude_hz=dc_exclude_hz,
+                        edge_exclude_hz=edge_exclude_hz,
+                        mqtt_broker=mqtt_broker,
+                        mqtt_port=mqtt_port,
+                        mqtt_topic_prefix=mqtt_topic_prefix,
+                        mqtt_username=mqtt_username,
+                        mqtt_password=mqtt_password,
+                        mqtt_tls=mqtt_tls,
+                        continuous_learning=continuous_learning,
+                    )
+                except typer.Exit:
+                    # Respect inner command exit and continue to next band
+                    continue
+                except KeyboardInterrupt:
+                    raise
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⏹️  Multi-band mode stopped by user[/yellow]")
 
 
 @train_app.command("models")
@@ -640,6 +732,9 @@ def live_monitor(
         try:
             detector.set_dc_exclude_hz(dc_exclude_hz)
             detector.set_edge_exclude_hz(edge_exclude_hz)
+            # Live uses the center as absolute range by SR/2 to clamp outputs
+            detector.set_allowed_frequency_range(center_hz - (sr_hz/2.0), center_hz + (sr_hz/2.0))
+            detector.configure_gating(min_snr_db=9.0, min_prominence_db=7.0, local_window_bins=5, neighbor_support_db=3.5)
             detector.configure_novelty(enabled=True, freq_tol_hz=max(3000.0, dc_exclude_hz), cooldown_s=1.0, score_delta=0.1)
         except Exception:
             pass

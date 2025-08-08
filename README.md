@@ -76,6 +76,25 @@ spectrum-alert monitor start --freq-start 144 --freq-end 148 --mode lite --durat
 spectrum-alert monitor start --freq-start 430 --freq-end 440 --mode full --name "UHF_Sweep"
 ```
 
+#### Multi-band Autonomous Monitoring
+```bash
+# Rotate across 2m and 70cm bands, one cycle each and repeat forever
+spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1
+
+# Same with MQTT and finite rotations
+spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1 --rounds 3 \
+  --sample-rate 2.048 --gain 30 --threshold 0.7 --mqtt-broker YOUR_BROKER --mqtt-topic-prefix spectrum_alert
+```
+
+#### Continuous Learning
+```bash
+# Enable training every cycle to adapt the model over time
+spectrum-alert monitor autonomous --freq-start 144 --freq-end 148 --continuous-learning
+
+# Combine with multi-band rotation
+spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --continuous-learning
+```
+
 #### Model Training
 ```bash
 # Train models using last 7 days of data
@@ -142,20 +161,34 @@ spectrum_alert/
 
 ## 🐳 Docker Deployment
 
-### Basic Deployment
+### Build and Run
 ```bash
-# Build and run
+# Build image
 docker build -t spectrum-alert .
-docker run --privileged --device=/dev/bus/usb spectrum-alert
 
-# Using Docker Compose
-docker-compose up
+# Run with CLI entrypoint (uses non-root user). Override command as needed.
+docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor status
+
+# Start autonomous mode (single band)
+docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous \
+  --freq-start 144 --freq-end 148 --data-minutes 5 --monitor-minutes 15 --continuous-learning
+
+# Multi-band rotation in Docker
+docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
+  -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1
 ```
 
-### Autonomous Service Mode
-```bash
-# 24-hour automated operation
-docker-compose --profile autonomous up
+### Compose (example)
+```yaml
+services:
+  spectrum-alert:
+    build: .
+    image: spectrum-alert:latest
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    environment:
+      - MQTT_BROKER=your-broker
+    command: ["monitor", "autonomous", "--freq-start", "144", "--freq-end", "148", "--continuous-learning"]
 ```
 
 ## 📊 Monitoring Output
@@ -185,6 +218,11 @@ System Status
 ```
 
 ## 🔧 Advanced Features
+
+### New in v1.1+
+- Multi-band autonomous rotation: monitor multiple bands sequentially with `monitor autonomous-multiband` and repeated `--band` options.
+- Continuous learning: enable `--continuous-learning` to retrain every cycle for adaptive models.
+- Stronger detector gating and artifact suppression: DC/edge exclusion, novelty filter, frequency-range clamp.
 
 ### Anomaly Detection Modes
 - **Lite Mode**: 2 features (mean_amplitude, std_amplitude) - Fast, low resource

@@ -29,6 +29,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Install the package to enable the CLI entrypoint
+RUN pip install --no-cache-dir .
+
 # Create necessary directories
 RUN mkdir -p /app/data /app/models /app/logs /app/config && \
     chown -R spectrum:spectrum /app
@@ -42,9 +45,10 @@ USER spectrum
 # Expose any ports if needed (for future web interface)
 EXPOSE 8080
 
-# Health check
+# Health check: simple CLI invocation that does not require SDR
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.path.insert(0, '/app/src'); from src.core.robust_collector import SafeRTLSDR; sdr = SafeRTLSDR(); print('healthy' if sdr.open() and sdr.close() else 'unhealthy')" || exit 1
+    CMD spectrum-alert version || exit 1
 
-# Default command (interactive mode)
-CMD ["python", "main.py"]
+# Default entrypoint and command: run CLI; override CMD with your desired subcommand
+ENTRYPOINT ["spectrum-alert"]
+CMD ["monitor", "status"]

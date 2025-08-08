@@ -45,6 +45,15 @@ class AnomalyDetectionUseCase:
         self.novelty_score_delta: float = 0.15
         # Keep a small history of recent alerts (freq_hz, ts, score)
         self._recent_alerts: deque[tuple[float, float, float]] = deque(maxlen=128)
+        
+        # Additional gating to reduce false positives
+        self.min_snr_db: float = 8.0
+        self.min_prominence_db: float = 6.0
+        self.local_window_bins: int = 5  # +/- bins to estimate local floor
+        self.neighbor_support_db: float = 3.0  # require at least one neighbor above this over baseline
+        # Allowed frequency range (None means unrestricted)
+        self.allowed_min_freq_hz: float | None = None
+        self.allowed_max_freq_hz: float | None = None
     
     def set_dc_exclude_hz(self, hz: float) -> None:
         """Set bandwidth around DC to ignore (helps avoid LO/DC spike false positives)."""
@@ -55,6 +64,23 @@ class AnomalyDetectionUseCase:
         """Set bandwidth to exclude near Nyquist edges (avoids false peaks at edges of passband)."""
         if hz >= 0:
             self.edge_exclude_hz = float(hz)
+    
+    def set_allowed_frequency_range(self, min_hz: float | None, max_hz: float | None) -> None:
+        """Restrict detections to this absolute frequency range (Hz)."""
+        self.allowed_min_freq_hz = float(min_hz) if min_hz is not None else None
+        self.allowed_max_freq_hz = float(max_hz) if max_hz is not None else None
+    
+    def configure_gating(self, min_snr_db: float | None = None, min_prominence_db: float | None = None,
+                         local_window_bins: int | None = None, neighbor_support_db: float | None = None) -> None:
+        """Configure additional gating thresholds to reduce false positives."""
+        if min_snr_db is not None:
+            self.min_snr_db = float(min_snr_db)
+        if min_prominence_db is not None:
+            self.min_prominence_db = float(min_prominence_db)
+        if local_window_bins is not None and local_window_bins >= 1:
+            self.local_window_bins = int(local_window_bins)
+        if neighbor_support_db is not None:
+            self.neighbor_support_db = float(neighbor_support_db)
 
     def configure_novelty(
         self,
@@ -203,7 +229,41 @@ class AnomalyDetectionUseCase:
                 return []
             if (half_bw - abs(peak_freq_offset)) <= edge_guard:
                 return []
-
+            
+            # Absolute frequency range guard (if configured)
+            if self.allowed_min_freq_hz is not None and peak_freq_hz < self.allowed_min_freq_hz:
+                return []
+            if self.allowed_max_freq_hz is not None and peak_freq_hz > self.allowed_max_freq_hz:
+                return []
+            
+            # Minimum SNR requirement
+            if snr_db < self.min_snr_db:
+                return []
+            
+            # Local prominence requirement relative to neighborhood floor
+            w = max(1, int(self.local_window_bins))
+            lo = max(0, idx - w)
+            hi = min(len(power), idx + w + 1)
+            if hi - lo > 3:
+                neighborhood = np.copy(power[lo:hi])
+                # exclude center bin
+                center_rel = idx - lo
+                neighborhood = np.delete(neighborhood, center_rel)
+                local_floor = float(np.median(neighborhood)) if neighborhood.size > 0 else baseline
+            else:
+                local_floor = baseline
+            local_floor = max(local_floor, 1e-12)
+            prominence_db = float(10.0 * np.log10((peak_power + 1e-12) / local_floor))
+            if prominence_db < self.min_prominence_db:
+                return []
+            
+            # Neighbor support: at least one adjacent bin above baseline by neighbor_support_db
+            support_lin = float(10.0 ** (self.neighbor_support_db / 10.0))
+            left_ok = (idx - 1 >= 0) and (power[idx - 1] >= support_lin * baseline)
+            right_ok = (idx + 1 < len(power)) and (power[idx + 1] >= support_lin * baseline)
+            if not (left_ok or right_ok):
+                return []
+            
             # Persistence/novelty gating to reduce repeated alerts for stable carriers
             now_ts = time.time()
             if not self._is_novel_peak(peak_freq_hz, score, now_ts):
@@ -239,7 +299,11 @@ class AnomalyDetectionUseCase:
                         "novelty_freq_tol_hz": float(self.novelty_freq_tol_hz),
                         "novelty_cooldown_s": float(self.novelty_cooldown_s),
                         "novelty_score_delta": float(self.novelty_score_delta),
-                        "method": "periodogram:hann+interp+dc_notch+edge_notch+guards+novelty",
+                        "min_snr_db": float(self.min_snr_db),
+                        "min_prominence_db": float(self.min_prominence_db),
+                        "local_window_bins": int(self.local_window_bins),
+                        "neighbor_support_db": float(self.neighbor_support_db),
+                        "method": "periodogram:hann+interp+dc_notch+edge_notch+guards+novelty+prominence",
                     },
                 )
                 anomalies.append(anomaly)
