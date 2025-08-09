@@ -154,7 +154,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# SpectrumAlert specific files
+# SpectrumAlert specific files and optimizations
 test_*.py
 *_SUMMARY.md
 *_test.py
@@ -163,6 +163,12 @@ main_simple.py
 rtl_recovery.py
 run_safe.py
 check_features.py
+
+# Data directories that can get large - exclude to save space
+data/spectrum/
+data/features/
+data/logs/
+models/*.pkl
 
 # Data and model files (except in proper directories)
 /*.pkl

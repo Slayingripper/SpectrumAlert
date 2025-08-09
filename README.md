@@ -74,6 +74,10 @@ spectrum-alert monitor start --freq-start 144 --freq-end 148 --mode lite --durat
 
 # Monitor with custom session name
 spectrum-alert monitor start --freq-start 430 --freq-end 440 --mode full --name "UHF_Sweep"
+
+# Reduce false positives with artifact filtering
+spectrum-alert monitor start --freq-start 144 --freq-end 148 --dc-exclude-hz 8000 --edge-exclude-hz 20000 \
+  --threshold 0.8 --novelty --novelty-cooldown-s 5.0
 ```
 
 #### Multi-band Autonomous Monitoring
@@ -84,6 +88,10 @@ spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --data-minutes
 # Same with MQTT and finite rotations
 spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1 --rounds 3 \
   --sample-rate 2.048 --gain 30 --threshold 0.7 --mqtt-broker YOUR_BROKER --mqtt-topic-prefix spectrum_alert
+
+# With artifact suppression to reduce false positives
+spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 \
+  --threshold 0.8 --continuous-learning
 ```
 
 #### Continuous Learning
@@ -93,6 +101,10 @@ spectrum-alert monitor autonomous --freq-start 144 --freq-end 148 --continuous-l
 
 # Combine with multi-band rotation
 spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --continuous-learning
+
+# With advanced filtering to minimize false positives
+spectrum-alert monitor autonomous --freq-start 144 --freq-end 148 --continuous-learning \
+  --dc-exclude-hz 12000 --edge-exclude-hz 30000 --threshold 0.75 --novelty-freq-tol-hz 3000
 ```
 
 #### Model Training
@@ -176,6 +188,10 @@ docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" sp
 # Multi-band rotation in Docker
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
   -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1
+
+# With false positive reduction
+docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
+  -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 --threshold 0.8 --continuous-learning
 ```
 
 ### Compose (example)
@@ -223,6 +239,13 @@ System Status
 - Multi-band autonomous rotation: monitor multiple bands sequentially with `monitor autonomous-multiband` and repeated `--band` options.
 - Continuous learning: enable `--continuous-learning` to retrain every cycle for adaptive models.
 - Stronger detector gating and artifact suppression: DC/edge exclusion, novelty filter, frequency-range clamp.
+
+### False Positive Reduction
+- **DC Exclusion**: `--dc-exclude-hz 8000` ignores ±8kHz around center frequency to avoid LO/DC spur artifacts
+- **Edge Exclusion**: `--edge-exclude-hz 20000` ignores ±20kHz near passband edges to avoid alias/rolloff artifacts  
+- **Novelty Filter**: `--novelty --novelty-cooldown-s 5.0` suppresses repeated alerts from stable carriers
+- **Threshold Tuning**: `--threshold 0.8` raises detection threshold to reduce noise-triggered alerts
+- **Frequency Tolerance**: `--novelty-freq-tol-hz 3000` groups nearby frequencies as same signal source
 
 ### Anomaly Detection Modes
 - **Lite Mode**: 2 features (mean_amplitude, std_amplitude) - Fast, low resource

@@ -313,9 +313,9 @@ def monitor_status():
 def autonomous_monitoring(
     frequency_start: float = typer.Option(88.0, "--freq-start", "-fs", help="Start frequency in MHz"),
     frequency_end: float = typer.Option(108.0, "--freq-end", "-fe", help="End frequency in MHz"),
-    data_collection_minutes: int = typer.Option(10, "--data-minutes", "-dm", help="Data collection duration in minutes"),
+    data_collection_minutes: int = typer.Option(5, "--data-minutes", "-dm", help="Data collection duration in minutes (reduced default)"),
     training_interval_hours: int = typer.Option(1, "--training-hours", "-th", help="Training interval in hours"),
-    monitoring_interval_minutes: int = typer.Option(30, "--monitor-minutes", "-mm", help="Monitoring interval in minutes"),
+    monitoring_interval_minutes: int = typer.Option(10, "--monitor-minutes", "-mm", help="Monitoring interval in minutes (reduced default)"),
     mode: DetectionMode = typer.Option(DetectionMode.LITE, "--mode", "-m", help="Detection mode"),
     max_cycles: Optional[int] = typer.Option(None, "--max-cycles", "-mc", help="Maximum cycles (None = infinite)"),
     sample_rate: float = typer.Option(2.048, "--sample-rate", "-sr", help="Sample rate in MHz"),
@@ -323,6 +323,10 @@ def autonomous_monitoring(
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
     dc_exclude_hz: float = typer.Option(5000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(10000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges to avoid alias/rolloff"),
+    novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
+    novelty_freq_tol_hz: float = typer.Option(5000.0, "--novelty-freq-tol-hz", help="Frequency tolerance for same-signal grouping"),
+    novelty_cooldown_s: float = typer.Option(3.0, "--novelty-cooldown-s", help="Suppress re-alerts within this time window"),
+    novelty_score_delta: float = typer.Option(0.15, "--novelty-score-delta", help="Minimum score rise to re-alert within cooldown"),
     mqtt_broker: Optional[str] = typer.Option(None, "--mqtt-broker", help="MQTT broker host (overrides config)"),
     mqtt_port: int = typer.Option(1883, "--mqtt-port", help="MQTT broker port"),
     mqtt_topic_prefix: str = typer.Option("spectrum_alert", "--mqtt-topic-prefix", help="MQTT topic prefix"),
@@ -401,10 +405,10 @@ def autonomous_monitoring(
                 autonomous_use_case.anomaly_use_case.set_allowed_frequency_range(freq_start_hz, freq_end_hz)
                 autonomous_use_case.anomaly_use_case.configure_gating(min_snr_db=10.0, min_prominence_db=8.0, local_window_bins=5, neighbor_support_db=4.0)
                 autonomous_use_case.anomaly_use_case.configure_novelty(
-                    enabled=True,
-                    freq_tol_hz=max(3000.0, dc_exclude_hz),
-                    cooldown_s=5.0,
-                    score_delta=0.2,
+                    enabled=novelty_enabled,
+                    freq_tol_hz=novelty_freq_tol_hz,
+                    cooldown_s=novelty_cooldown_s,
+                    score_delta=novelty_score_delta,
                 )
             except Exception:
                 pass
@@ -466,15 +470,19 @@ def autonomous_monitoring(
 @monitor_app.command("autonomous-multiband")
 def autonomous_multiband(
     bands: list[str] = typer.Option(..., "--band", "-b", help="Band range in MHz as START-END (e.g., 144-148). Repeat for multiple."),
-    data_collection_minutes: int = typer.Option(10, "--data-minutes", "-dm", help="Data collection duration per band (minutes)"),
+    data_collection_minutes: int = typer.Option(5, "--data-minutes", "-dm", help="Data collection duration per band (minutes)"),
     training_interval_hours: int = typer.Option(1, "--training-hours", "-th", help="Training interval (hours)"),
-    monitoring_interval_minutes: int = typer.Option(15, "--monitor-minutes", "-mm", help="Monitoring duration per band (minutes)"),
+    monitoring_interval_minutes: int = typer.Option(10, "--monitor-minutes", "-mm", help="Monitoring duration per band (minutes)"),
     mode: DetectionMode = typer.Option(DetectionMode.LITE, "--mode", "-m", help="Detection mode"),
     sample_rate: float = typer.Option(1.024, "--sample-rate", "-sr", help="Sample rate in MHz"),
     gain: float = typer.Option(25.0, "--gain", "-g", help="Gain in dB"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
     dc_exclude_hz: float = typer.Option(8000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(20000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges"),
+    novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
+    novelty_freq_tol_hz: float = typer.Option(5000.0, "--novelty-freq-tol-hz", help="Frequency tolerance for same-signal grouping"),
+    novelty_cooldown_s: float = typer.Option(3.0, "--novelty-cooldown-s", help="Suppress re-alerts within this time window"),
+    novelty_score_delta: float = typer.Option(0.15, "--novelty-score-delta", help="Minimum score rise to re-alert within cooldown"),
     mqtt_broker: Optional[str] = typer.Option(None, "--mqtt-broker", help="MQTT broker host (overrides config)"),
     mqtt_port: int = typer.Option(1883, "--mqtt-port", help="MQTT broker port"),
     mqtt_topic_prefix: str = typer.Option("spectrum_alert", "--mqtt-topic-prefix", help="MQTT topic prefix"),
@@ -533,6 +541,10 @@ def autonomous_multiband(
                         threshold=threshold,
                         dc_exclude_hz=dc_exclude_hz,
                         edge_exclude_hz=edge_exclude_hz,
+                        novelty_enabled=novelty_enabled,
+                        novelty_freq_tol_hz=novelty_freq_tol_hz,
+                        novelty_cooldown_s=novelty_cooldown_s,
+                        novelty_score_delta=novelty_score_delta,
                         mqtt_broker=mqtt_broker,
                         mqtt_port=mqtt_port,
                         mqtt_topic_prefix=mqtt_topic_prefix,

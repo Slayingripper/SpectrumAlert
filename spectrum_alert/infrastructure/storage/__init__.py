@@ -36,12 +36,12 @@ class DataStorage:
             os.makedirs(directory, exist_ok=True)
     
     def save_spectrum_data(self, spectrum_data: SpectrumData) -> str:
-        """Save spectrum data to file"""
+        """Save spectrum data to file with optimized storage"""
         try:
             filename = f"spectrum_{spectrum_data.timestamp.strftime('%Y%m%d_%H%M%S')}_{spectrum_data.id[:8]}.json"
             filepath = os.path.join(self.data_dir, "spectrum", filename)
             
-            # Convert to serializable format
+            # Convert to serializable format with reduced precision and smaller sample storage
             data = {
                 'id': spectrum_data.id,
                 'timestamp': spectrum_data.timestamp.isoformat(),
@@ -51,14 +51,14 @@ class DataStorage:
                 'duration_seconds': spectrum_data.duration_seconds,
                 'sample_count': spectrum_data.sample_count,
                 'frequency_range_hz': spectrum_data.frequency_range_hz,
-                # Store samples as lists (real, imag)
-                'samples_real': [s.real for s in spectrum_data.samples],
-                'samples_imag': [s.imag for s in spectrum_data.samples],
-                'power_spectrum': spectrum_data.power_spectrum
+                # Store only first 256 samples with reduced precision to save space
+                'samples_real': [round(s.real, 4) for s in spectrum_data.samples[:256]],
+                'samples_imag': [round(s.imag, 4) for s in spectrum_data.samples[:256]],
+                'power_spectrum': [round(p, 4) for p in spectrum_data.power_spectrum[:256]] if spectrum_data.power_spectrum else None
             }
             
             with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f, separators=(',', ':'))  # Compact JSON format
             
             logger.debug(f"Spectrum data saved to {filepath}")
             return filepath
@@ -207,8 +207,9 @@ class DataStorage:
             logger.error(f"Error getting anomaly count: {e}")
             return 0
 
-    def cleanup_old_data(self, max_age_days: int = 30) -> Dict[str, int]:
+    def cleanup_old_data(self, max_age_days: int = 7) -> Dict[str, int]:
         """Remove data files older than specified days across all data folders.
+        Defaults to 7 days for more aggressive cleanup.
         Returns a dict with counts of removed files per category.
         """
         removed = {"spectrum": 0, "features": 0, "anomalies": 0, "logs": 0}
@@ -217,7 +218,7 @@ class DataStorage:
             # Map subfolders to counters key
             folders = {
                 os.path.join(self.data_dir, "spectrum"): "spectrum",
-                os.path.join(self.data_dir, "features"): "features",
+                os.path.join(self.data_dir, "features"): "features", 
                 os.path.join(self.data_dir, "anomalies"): "anomalies",
                 os.path.join(self.data_dir, "logs"): "logs",
             }

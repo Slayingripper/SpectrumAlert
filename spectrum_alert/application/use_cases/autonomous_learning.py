@@ -22,16 +22,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AutonomousCycleConfig:
     """Configuration for autonomous cycle"""
-    data_collection_minutes: int = 10
+    data_collection_minutes: int = 5  # reduced for faster cycles
     training_interval_hours: int = 1  
-    monitoring_interval_minutes: int = 30
+    monitoring_interval_minutes: int = 10  # reduced for faster cycles
     frequency_start: float = 88.0e6
     frequency_end: float = 108.0e6
     detection_mode: DetectionMode = DetectionMode.LITE
     sample_rate: float = 2.048e6
     gain: float = 30.0
     max_cycles: Optional[int] = None  # None = infinite
-    retention_days: int = 7  # how long to keep raw/feature/anomaly files
+    retention_days: int = 7  # how long to keep raw/feature/anomaly files (reduced from default)
     detect_during_collection: bool = False  # disable detection in Phase 1 by default
     monitor_window_ms: float = 200.0  # analysis window per read during monitoring
     per_frequency_hold_seconds: float = 10.0  # how long to stay on each freq before hopping
@@ -269,9 +269,9 @@ class AutonomousLearningUseCase:
                     samples = self.sdr.read_samples(current_batch_size)
                     
                     # Only process every 10th batch to reduce CPU load and create meaningful chunks
-                    if data_batches % 10 == 0:
+                    if data_batches % 25 == 0:  # Changed from 10 to 25 for even less storage
                         # Calculate power spectrum from samples (reduce size for storage)
-                        fft_samples = samples[:min(512, len(samples))]
+                        fft_samples = samples[:min(256, len(samples))]  # Reduced from 512 to 256
                         power_spectrum = np.abs(np.fft.fft(fft_samples)).tolist()
                         
                         # Create spectrum data object with reduced sample storage
@@ -380,7 +380,7 @@ class AutonomousLearningUseCase:
                 avg_rate = 0
             
             # Calculate effective data rate (stored data vs collected)
-            stored_batches = data_batches // 10  # Only every 10th batch was stored
+            stored_batches = data_batches // 25  # Only every 25th batch was stored
             
             self.total_data_collected += samples_collected
             
@@ -389,7 +389,7 @@ class AutonomousLearningUseCase:
                 self._log_status(f"✅ Data collection completed!")
                 self._log_status(f"   • Duration: {actual_duration:.1f} minutes")
                 self._log_status(f"   • Samples collected: {samples_collected:,}")
-                self._log_status(f"   • Samples stored: {stored_batches * 512:,}")  # 512 samples per stored batch
+                self._log_status(f"   • Samples stored: {stored_batches * 256:,}")  # 256 samples per stored batch
                 self._log_status(f"   • Data size: {data_size_mb:.1f} MB collected") 
                 self._log_status(f"   • Rate: {avg_rate/1e6:.2f} MSps average")
                 self._log_status(f"   • Batches: {data_batches} total, {stored_batches} stored")
@@ -423,10 +423,10 @@ class AutonomousLearningUseCase:
             except Exception as e:
                 self._log_status(f"⚠️ Cleanup skipped: {e}", "warning")
             
-            # Load recent training data
+            # Load recent training data with fewer days for faster training
             training_data = self.storage.load_training_data(
                 mode=self.config.detection_mode.value,
-                days=max(1, min(self.config.retention_days, 30))
+                days=max(1, min(self.config.retention_days // 2, 7))  # Use fewer days for training
             )
             
             if training_data is None or len(training_data) < 10:
@@ -436,7 +436,7 @@ class AutonomousLearningUseCase:
             # Train and persist anomaly model
             from spectrum_alert.application.use_cases.model_training import ModelTrainingUseCase
             trainer = ModelTrainingUseCase(self.storage)
-            if trainer.train_models(self.config.detection_mode, days=max(1, min(self.config.retention_days, 30))):
+            if trainer.train_models(self.config.detection_mode, days=max(1, min(self.config.retention_days // 2, 7))):
                 self.last_training_time = datetime.now()
                 self._log_status("✅ Models trained and saved successfully")
                 # Notify via MQTT
