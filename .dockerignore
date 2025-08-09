@@ -26,8 +26,7 @@ coverage.xml
 # Test files
 test_*.py
 
-# Documentation
-*.md
+# Documentation (exclude docs but keep README)
 docs/
 
 # IDE files

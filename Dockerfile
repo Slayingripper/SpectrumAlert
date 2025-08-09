@@ -20,18 +20,11 @@ RUN useradd -m -u 1000 spectrum && \
 # Set working directory
 WORKDIR /app
 
-# Copy package configuration for dependency installation
-COPY pyproject.toml README.md ./
-COPY spectrum_alert/ ./spectrum_alert/
-
-# Install the package with dependencies
-RUN pip install --no-cache-dir -e .
-
-# Copy remaining application files
+# Copy application code
 COPY . .
 
-# Reinstall to ensure CLI entrypoint is available
-RUN pip install --no-cache-dir -e .
+# Install the package with dependencies
+RUN pip install --no-cache-dir .
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/models /app/logs /app/config && \
