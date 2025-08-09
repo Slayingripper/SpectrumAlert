@@ -77,7 +77,7 @@ spectrum-alert monitor start --freq-start 430 --freq-end 440 --mode full --name 
 
 # Reduce false positives with artifact filtering
 spectrum-alert monitor start --freq-start 144 --freq-end 148 --dc-exclude-hz 8000 --edge-exclude-hz 20000 \
-  --threshold 0.8 --novelty --novelty-cooldown-s 5.0
+  --threshold 0.8 --strict-threshold --novelty --novelty-cooldown-s 5.0
 ```
 
 #### Multi-band Autonomous Monitoring
@@ -91,7 +91,7 @@ spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --data-minutes
 
 # With artifact suppression to reduce false positives
 spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 \
-  --threshold 0.8 --continuous-learning
+  --threshold 0.8 --strict-threshold --continuous-learning
 ```
 
 #### Continuous Learning
@@ -104,7 +104,7 @@ spectrum-alert monitor autonomous-multiband -b 144-148 -b 430-440 --continuous-l
 
 # With advanced filtering to minimize false positives
 spectrum-alert monitor autonomous --freq-start 144 --freq-end 148 --continuous-learning \
-  --dc-exclude-hz 12000 --edge-exclude-hz 30000 --threshold 0.75 --novelty-freq-tol-hz 3000
+  --dc-exclude-hz 12000 --edge-exclude-hz 30000 --threshold 0.75 --strict-threshold --novelty-freq-tol-hz 3000
 ```
 
 #### Model Training
@@ -191,7 +191,7 @@ docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" sp
 
 # With false positive reduction
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
-  -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 --threshold 0.8 --continuous-learning
+  -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 --threshold 0.8 --strict-threshold --continuous-learning
 ```
 
 ### Compose (example)
@@ -245,6 +245,7 @@ System Status
 - **Edge Exclusion**: `--edge-exclude-hz 20000` ignores ±20kHz near passband edges to avoid alias/rolloff artifacts  
 - **Novelty Filter**: `--novelty --novelty-cooldown-s 5.0` suppresses repeated alerts from stable carriers
 - **Threshold Tuning**: `--threshold 0.8` raises detection threshold to reduce noise-triggered alerts
+- **Strict Threshold Mode**: `--strict-threshold` (default: enabled) requires borderline scores to have higher SNR
 - **Frequency Tolerance**: `--novelty-freq-tol-hz 3000` groups nearby frequencies as same signal source
 
 ### Anomaly Detection Modes

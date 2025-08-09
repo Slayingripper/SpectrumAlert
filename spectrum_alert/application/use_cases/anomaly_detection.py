@@ -33,6 +33,10 @@ class AnomalyDetectionUseCase:
     def __init__(self, feature_extractor: FeatureExtractor):
         self.feature_extractor = feature_extractor
         self.anomaly_threshold = 0.7  # Default threshold
+        # Strict threshold mode for additional verification
+        self.strict_threshold_mode: bool = True  # Enable by default for better filtering
+        self.min_snr_for_borderline: float = 15.0  # Higher SNR required for borderline scores
+        
         # Exclude DC/LO spur around center
         self.dc_exclude_hz: float = 5000.0
         # Exclude edges of passband near Nyquist (FFT edges)
@@ -270,7 +274,24 @@ class AnomalyDetectionUseCase:
                 return []
             
             anomalies: List[AnomalyDetection] = []
+            # Only consider it an anomaly when the score is high enough
             if score >= self.anomaly_threshold:
+                # Determine severity based on score thresholds
+                if score >= 0.95:
+                    severity = "critical"
+                elif score >= 0.85:
+                    severity = "high"
+                elif score >= 0.75:
+                    severity = "medium"
+                else:
+                    severity = "low"
+                
+                # Additional verification: require score to be meaningfully above threshold
+                if self.strict_threshold_mode and score < (self.anomaly_threshold + 0.05):
+                    # If score is only barely above threshold, be more conservative
+                    if snr_db < self.min_snr_for_borderline:  # Require higher SNR for borderline scores
+                        return []
+                
                 # Extract features (optional, retained for pipeline consistency)
                 try:
                     self.feature_extractor.extract_features(samples, spectrum_data.frequency_hz)
@@ -283,7 +304,7 @@ class AnomalyDetectionUseCase:
                     frequency_hz=peak_freq_hz,
                     anomaly_type=AnomalyType.AMPLITUDE,
                     confidence_score=score,
-                    severity="medium",
+                    severity=severity,
                     description=f"Peak at {peak_freq_hz/1e6:.6f} MHz, SNR={snr_db:.1f} dB, score={score:.2f}",
                     detection_mode=DetectionMode.LITE if self.feature_extractor.lite_mode else DetectionMode.FULL,
                     metadata={
@@ -321,3 +342,28 @@ class AnomalyDetectionUseCase:
             self.anomaly_threshold = threshold
         else:
             raise ValueError("Threshold must be between 0.0 and 1.0")
+
+    def set_strict_threshold_mode(self, enabled: bool = True, min_snr_for_borderline: float = 15.0) -> None:
+        """
+        Enable strict threshold mode with additional verification for borderline scores.
+        
+        Args:
+            enabled: Whether to enable strict mode
+            min_snr_for_borderline: Minimum SNR required for scores barely above threshold
+        """
+        self.strict_threshold_mode = enabled
+        self.min_snr_for_borderline = min_snr_for_borderline
+
+    def get_threshold_info(self) -> dict:
+        """Get current threshold configuration information."""
+        return {
+            "anomaly_threshold": self.anomaly_threshold,
+            "strict_mode": getattr(self, 'strict_threshold_mode', False),
+            "min_snr_for_borderline": getattr(self, 'min_snr_for_borderline', 15.0),
+            "severity_thresholds": {
+                "low": f"{self.anomaly_threshold:.2f} - 0.74",
+                "medium": "0.75 - 0.84", 
+                "high": "0.85 - 0.94",
+                "critical": "0.95+"
+            }
+        }

@@ -70,6 +70,7 @@ def start_monitoring(
     sample_rate: float = typer.Option(1.024, "--sample-rate", "-sr", help="Sample rate in MHz"),
     gain: float = typer.Option(20.0, "--gain", "-g", help="Gain in dB"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
+    strict_threshold: bool = typer.Option(True, "--strict-threshold", help="Enable strict threshold mode for better filtering"),
     dc_exclude_hz: float = typer.Option(5000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(10000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges to avoid alias/rolloff"),
     novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
@@ -109,6 +110,7 @@ def start_monitoring(
         monitoring_use_case = SpectrumMonitoringUseCase(sdr, storage, feature_extractor)
         anomaly_use_case = AnomalyDetectionUseCase(feature_extractor)
         anomaly_use_case.set_threshold(threshold)
+        anomaly_use_case.set_strict_threshold_mode(strict_threshold)
         try:
             anomaly_use_case.set_dc_exclude_hz(dc_exclude_hz)
             anomaly_use_case.set_edge_exclude_hz(edge_exclude_hz)
@@ -226,6 +228,7 @@ def verify_realtime_anomalies(
     sample_rate: float = typer.Option(1.024, "--sample-rate", "-sr", help="Sample rate in MHz"),
     gain: float = typer.Option(20.0, "--gain", "-g", help="Gain in dB"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
+    strict_threshold: bool = typer.Option(True, "--strict-threshold", help="Enable strict threshold mode for better filtering"),
     dc_exclude_hz: float = typer.Option(5000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(10000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges"),
     novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
@@ -250,6 +253,7 @@ def verify_realtime_anomalies(
         sample_rate=sample_rate,
         gain=gain,
         threshold=threshold,
+        strict_threshold=strict_threshold,
         dc_exclude_hz=dc_exclude_hz,
         edge_exclude_hz=edge_exclude_hz,
         novelty_enabled=novelty_enabled,
@@ -321,6 +325,7 @@ def autonomous_monitoring(
     sample_rate: float = typer.Option(2.048, "--sample-rate", "-sr", help="Sample rate in MHz"),
     gain: float = typer.Option(30.0, "--gain", "-g", help="Gain in dB"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
+    strict_threshold: bool = typer.Option(True, "--strict-threshold", help="Enable strict threshold mode for better filtering"),
     dc_exclude_hz: float = typer.Option(5000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(10000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges to avoid alias/rolloff"),
     novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
@@ -399,6 +404,7 @@ def autonomous_monitoring(
         # Apply threshold to anomaly detector
         try:
             autonomous_use_case.anomaly_use_case.set_threshold(threshold)
+            autonomous_use_case.anomaly_use_case.set_strict_threshold_mode(strict_threshold)
             try:
                 autonomous_use_case.anomaly_use_case.set_dc_exclude_hz(dc_exclude_hz)
                 autonomous_use_case.anomaly_use_case.set_edge_exclude_hz(edge_exclude_hz)
@@ -477,6 +483,7 @@ def autonomous_multiband(
     sample_rate: float = typer.Option(1.024, "--sample-rate", "-sr", help="Sample rate in MHz"),
     gain: float = typer.Option(25.0, "--gain", "-g", help="Gain in dB"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Anomaly threshold (0..1)"),
+    strict_threshold: bool = typer.Option(True, "--strict-threshold", help="Enable strict threshold mode for better filtering"),
     dc_exclude_hz: float = typer.Option(8000.0, "--dc-exclude-hz", help="Ignore +/- this Hz around center to avoid LO/DC spur"),
     edge_exclude_hz: float = typer.Option(20000.0, "--edge-exclude-hz", help="Ignore +/- this Hz near passband edges"),
     novelty_enabled: bool = typer.Option(True, "--novelty", help="Enable persistence/novelty filter"),
@@ -539,6 +546,7 @@ def autonomous_multiband(
                         sample_rate=sample_rate,
                         gain=gain,
                         threshold=threshold,
+                        strict_threshold=strict_threshold,
                         dc_exclude_hz=dc_exclude_hz,
                         edge_exclude_hz=edge_exclude_hz,
                         novelty_enabled=novelty_enabled,
