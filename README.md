@@ -181,17 +181,25 @@ docker build -t spectrum-alert .
 # Run with CLI entrypoint (uses non-root user). Override command as needed.
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor status
 
-# Start autonomous mode (single band)
+# Start autonomous mode (single band) with enhanced filtering
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous \
-  --freq-start 144 --freq-end 148 --data-minutes 5 --monitor-minutes 15 --continuous-learning
+  --freq-start 144 --freq-end 148 --data-minutes 5 --monitor-minutes 15 --continuous-learning \
+  --threshold 0.8 --strict-threshold --dc-exclude-hz 12000 --edge-exclude-hz 30000 --novelty-freq-tol-hz 5000
 
-# Multi-band rotation in Docker
+# Multi-band rotation in Docker with comprehensive filtering
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
-  -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1
+  -b 144-148 -b 430-440 --data-minutes 5 --monitor-minutes 15 --max-cycles-per-band 1 \
+  --threshold 0.8 --strict-threshold --dc-exclude-hz 10000 --edge-exclude-hz 25000 --novelty --novelty-freq-tol-hz 5000
 
 # With false positive reduction
 docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous-multiband \
   -b 144-148 -b 430-440 --dc-exclude-hz 10000 --edge-exclude-hz 25000 --threshold 0.8 --strict-threshold --continuous-learning
+
+# Production-ready autonomous monitoring with maximum filtering
+docker run --rm --privileged --device=/dev/bus/usb -v "$(pwd)/data:/app/data" spectrum-alert monitor autonomous \
+  --freq-start 144 --freq-end 148 --continuous-learning --threshold 0.85 --strict-threshold \
+  --dc-exclude-hz 15000 --edge-exclude-hz 35000 --novelty --novelty-freq-tol-hz 3000 --novelty-cooldown-s 10.0 \
+  --sample-rate 2.048 --gain 30 --data-minutes 3 --monitor-minutes 12
 ```
 
 ### Compose (example)
@@ -204,7 +212,16 @@ services:
       - "/dev/bus/usb:/dev/bus/usb"
     environment:
       - MQTT_BROKER=your-broker
-    command: ["monitor", "autonomous", "--freq-start", "144", "--freq-end", "148", "--continuous-learning"]
+    command: [
+      "monitor", "autonomous", 
+      "--freq-start", "144", "--freq-end", "148", 
+      "--continuous-learning", "--threshold", "0.8", "--strict-threshold",
+      "--dc-exclude-hz", "12000", "--edge-exclude-hz", "30000",
+      "--novelty", "--novelty-freq-tol-hz", "5000"
+    ]
+    volumes:
+      - "./data:/app/data"
+    restart: unless-stopped
 ```
 
 ## 📊 Monitoring Output

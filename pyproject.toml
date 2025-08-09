@@ -43,6 +43,7 @@ dependencies = [
     "typer>=0.9.0",
     "structlog>=23.0.0",
     "dependency-injector>=4.41.0",
+    "psutil>=5.8.0",
 ]
 
 [project.optional-dependencies]
