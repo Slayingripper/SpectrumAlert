@@ -80,6 +80,41 @@ class SystemMonitor:
             logger.error(f"Error getting system metrics: {e}")
             raise MonitoringError(f"Failed to get system metrics: {e}")
     
+    def get_system_status(self) -> Dict[str, Any]:
+        """Get system status for web dashboard"""
+        try:
+            metrics = self.get_system_metrics()
+            
+            # Determine overall health status
+            cpu_ok = metrics['cpu']['percent'] < 80
+            memory_ok = metrics['memory']['percent'] < 85
+            disk_ok = metrics['disk']['percent'] < 90
+            
+            if cpu_ok and memory_ok and disk_ok:
+                status = "healthy"
+            elif metrics['cpu']['percent'] > 95 or metrics['memory']['percent'] > 95:
+                status = "critical"
+            else:
+                status = "warning"
+            
+            return {
+                "status": status,
+                "metrics": metrics,
+                "health_checks": {
+                    "cpu": "ok" if cpu_ok else "warning",
+                    "memory": "ok" if memory_ok else "warning", 
+                    "disk": "ok" if disk_ok else "warning"
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error getting system status: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "metrics": {},
+                "health_checks": {}
+            }
+    
     def get_process_metrics(self, pid: Optional[int] = None) -> Dict[str, Any]:
         """Get metrics for a specific process (current process if pid not specified)"""
         try:

@@ -26,6 +26,7 @@ class SpectrumMonitoringUseCase:
         self.storage = storage
         self.feature_extractor = feature_extractor
         self.current_session: Optional[MonitoringSession] = None
+        self.anomaly_detector: Optional[Any] = None  # Will be set externally
     
     def start_monitoring_session(
         self,

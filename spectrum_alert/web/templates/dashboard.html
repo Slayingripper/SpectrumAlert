@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpectrumAlert Dashboard</title>
+    <link rel="stylesheet" href="/static/css/cyberpunk.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo-section">
+                <div class="skull-icon">
+                    <i class="fas fa-skull"></i>
+                </div>
+                <h1 class="title">SPECTRUM<span class="highlight">ALERT</span></h1>
+                <div class="subtitle">RF MONITORING SYSTEM</div>
+            </div>
+            <div class="status-indicators">
+                <div class="indicator" id="system-status">
+                    <div class="led"></div>
+                    <span>SYSTEM</span>
+                </div>
+                <div class="indicator" id="monitor-status">
+                    <div class="led"></div>
+                    <span>MONITOR</span>
+                </div>
+                <div class="indicator" id="threat-status">
+                    <div class="led"></div>
+                    <span>THREATS</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Grid -->
+        <main class="dashboard-grid">
+            <!-- System Overview -->
+            <section class="panel system-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-microchip"></i> SYSTEM STATUS</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshSystemData()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-label">CPU USAGE</div>
+                            <div class="metric-value" id="cpu-usage">--</div>
+                            <div class="metric-bar">
+                                <div class="metric-fill" id="cpu-bar"></div>
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">MEMORY</div>
+                            <div class="metric-value" id="memory-usage">--</div>
+                            <div class="metric-bar">
+                                <div class="metric-fill" id="memory-bar"></div>
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">UPTIME</div>
+                            <div class="metric-value" id="uptime">--</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">TEMP</div>
+                            <div class="metric-value" id="temperature">--</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Spectrum Analysis -->
+            <section class="panel spectrum-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-broadcast-tower"></i> SPECTRUM ANALYSIS</h2>
+                    <div class="panel-controls">
+                        <button class="btn-start" id="start-monitoring" onclick="startMonitoring()">
+                            <i class="fas fa-play"></i>
+                            START
+                        </button>
+                        <button class="btn-stop" id="stop-monitoring" onclick="stopMonitoring()" style="display: none;">
+                            <i class="fas fa-stop"></i>
+                            STOP
+                        </button>
+                        <select class="control-select" id="frequency-range">
+                            <option value="all">ALL BANDS</option>
+                            <option value="vhf">VHF</option>
+                            <option value="uhf">UHF</option>
+                            <option value="microwave">MICROWAVE</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="chart-container">
+                        <canvas id="spectrum-chart"></canvas>
+                    </div>
+                    <div class="spectrum-stats">
+                        <div class="stat">
+                            <span class="stat-label">PEAK FREQ:</span>
+                            <span class="stat-value" id="peak-frequency">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">AVG POWER:</span>
+                            <span class="stat-value" id="avg-power">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">SNR:</span>
+                            <span class="stat-value" id="snr-value">--</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Anomaly Detection -->
+            <section class="panel anomaly-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-exclamation-triangle"></i> THREAT DETECTION</h2>
+                    <div class="panel-controls">
+                        <button class="btn-toggle" id="auto-detect-toggle">
+                            <i class="fas fa-power-off"></i>
+                            <span>AUTO</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="anomaly-summary">
+                        <div class="anomaly-counter critical">
+                            <div class="counter-value" id="critical-count">0</div>
+                            <div class="counter-label">CRITICAL</div>
+                        </div>
+                        <div class="anomaly-counter high">
+                            <div class="counter-value" id="high-count">0</div>
+                            <div class="counter-label">HIGH</div>
+                        </div>
+                        <div class="anomaly-counter medium">
+                            <div class="counter-value" id="medium-count">0</div>
+                            <div class="counter-label">MEDIUM</div>
+                        </div>
+                        <div class="anomaly-counter low">
+                            <div class="counter-value" id="low-count">0</div>
+                            <div class="counter-label">LOW</div>
+                        </div>
+                    </div>
+                    <div class="anomaly-chart-container">
+                        <canvas id="anomaly-chart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recent Alerts -->
+            <section class="panel alerts-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-bell"></i> RECENT ALERTS</h2>
+                    <div class="panel-controls">
+                        <button class="btn-clear" onclick="clearAlerts()">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="alerts-list" id="alerts-list">
+                        <!-- Dynamic alerts will be inserted here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Model Performance -->
+            <section class="panel model-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-brain"></i> MODEL STATUS</h2>
+                    <div class="panel-controls">
+                        <button class="btn-retrain" onclick="retrainModel()">
+                            <i class="fas fa-sync"></i>
+                            RETRAIN
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="model-stats">
+                        <div class="model-stat">
+                            <div class="stat-label">ACCURACY</div>
+                            <div class="stat-value" id="model-accuracy">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">CONFIDENCE</div>
+                            <div class="stat-value" id="model-confidence">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">LAST TRAINED</div>
+                            <div class="stat-value" id="last-trained">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">SAMPLES</div>
+                            <div class="stat-value" id="sample-count">--</div>
+                        </div>
+                    </div>
+                    <div class="model-chart-container">
+                        <canvas id="model-performance-chart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Configuration -->
+            <section class="panel config-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-cogs"></i> CONFIGURATION</h2>
+                    <div class="panel-controls">
+                        <button class="btn-save" onclick="saveConfig()">
+                            <i class="fas fa-save"></i>
+                            SAVE
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="config-tabs">
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" onclick="showTab('basic-config')">BASIC</button>
+                            <button class="tab-btn" onclick="showTab('advanced-config')">ADVANCED</button>
+                            <button class="tab-btn" onclick="showTab('mqtt-config')">MQTT</button>
+                        </div>
+                        
+                        <div class="tab-content active" id="basic-config">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="threshold-slider">Detection Threshold:</label>
+                                    <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.8">
+                                    <span class="slider-value" id="threshold-slider-value">0.8</span>
+                                </div>
+                                <div class="config-item">
+                                    <label for="frequency-range-config">Frequency Range:</label>
+                                    <input type="text" id="frequency-range-config" placeholder="144-148" value="144-148">
+                                </div>
+                                <div class="config-item">
+                                    <label for="scan-interval">Scan Interval (s):</label>
+                                    <input type="number" id="scan-interval" min="1" max="3600" value="5">
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="strict-mode" checked> Strict Mode
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-content" id="advanced-config">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="dcExclude">DC Exclude (Hz):</label>
+                                    <input type="number" id="dcExclude" value="8000" min="0" max="50000">
+                                </div>
+                                <div class="config-item">
+                                    <label for="edgeExclude">Edge Exclude (Hz):</label>
+                                    <input type="number" id="edgeExclude" value="20000" min="0" max="100000">
+                                </div>
+                                <div class="config-item">
+                                    <label for="threshold">Advanced Threshold:</label>
+                                    <input type="number" id="threshold" value="0.8" min="0.1" max="1.0" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="strictThreshold" checked> Strict Threshold Mode
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="noveltyFilter"> Novelty Filtering
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="continuousLearning"> Continuous Learning
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="band-config">
+                                <h4>Multi-band Configuration</h4>
+                                <div class="config-grid">
+                                    <div class="config-item">
+                                        <label for="band1">Band 1 (MHz):</label>
+                                        <input type="text" id="band1" placeholder="144-148" value="144-148">
+                                    </div>
+                                    <div class="config-item">
+                                        <label for="band2">Band 2 (MHz):</label>
+                                        <input type="text" id="band2" placeholder="430-440" value="430-440">
+                                    </div>
+                                    <div class="config-item">
+                                        <label for="band3">Band 3 (MHz):</label>
+                                        <input type="text" id="band3" placeholder="88-108">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="advanced-controls">
+                                <button class="btn-primary" onclick="startAdvancedMonitoring()">
+                                    <i class="fas fa-play"></i>
+                                    START ADVANCED
+                                </button>
+                                <button class="btn-secondary" onclick="startMultiBandMonitoring()">
+                                    <i class="fas fa-broadcast-tower"></i>
+                                    START MULTI-BAND
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-content" id="mqtt-config">
+                            <div class="mqtt-status-section">
+                                <div class="status-display">
+                                    <span class="status-indicator" id="mqtt-status">●</span>
+                                    <span class="status-text">MQTT Status: </span>
+                                    <span class="status-value" id="mqtt-connection-status">Disconnected</span>
+                                </div>
+                            </div>
+                            
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="mqttBroker">Broker:</label>
+                                    <input type="text" id="mqttBroker" placeholder="localhost" value="localhost">
+                                </div>
+                                <div class="config-item">
+                                    <label for="mqttPort">Port:</label>
+                                    <input type="number" id="mqttPort" value="1883" min="1" max="65535">
+                                </div>
+                                <div class="config-item">
+                                    <label for="mqttTopic">Topic Prefix:</label>
+                                    <input type="text" id="mqttTopic" placeholder="spectrum_alert" value="spectrum_alert">
+                                </div>
+                            </div>
+                            
+                            <div class="mqtt-controls">
+                                <button class="btn-primary" onclick="connectMQTT()">
+                                    <i class="fas fa-link"></i>
+                                    CONNECT
+                                </button>
+                                <button class="btn-secondary" onclick="disconnectMQTT()">
+                                    <i class="fas fa-unlink"></i>
+                                    DISCONNECT
+                                </button>
+                                <button class="btn-test" onclick="testMQTT()">
+                                    <i class="fas fa-vial"></i>
+                                    TEST
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Model Training -->
+            <section class="panel training-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-graduation-cap"></i> MODEL TRAINING</h2>
+                    <div class="panel-controls">
+                        <button class="btn-train" id="train-model" onclick="trainModel()">
+                            <i class="fas fa-play"></i>
+                            TRAIN
+                        </button>
+                        <button class="btn-test" id="test-model" onclick="testModel()">
+                            <i class="fas fa-vial"></i>
+                            TEST
+                        </button>
+                        <button class="btn-deploy" id="deploy-model" onclick="deployModel()">
+                            <i class="fas fa-rocket"></i>
+                            DEPLOY
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="training-status">
+                        <div class="status-item">
+                            <span class="status-label">STATUS:</span>
+                            <span class="status-value" id="training-status">IDLE</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">PROGRESS:</span>
+                            <span class="status-value" id="training-progress">0%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="training-progress-bar"></div>
+                        </div>
+                        <div class="progress-text" id="training-stage">Ready to train</div>
+                    </div>
+                    
+                    <div class="training-config">
+                        <h4>Training Configuration</h4>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label for="model-type">Model Type:</label>
+                                <select id="model-type" class="control-select">
+                                    <option value="isolation_forest">Isolation Forest</option>
+                                    <option value="autoencoder">Autoencoder</option>
+                                    <option value="svm">One-Class SVM</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="contamination">Contamination:</label>
+                                <input type="range" id="contamination" min="0.01" max="0.5" step="0.01" value="0.1">
+                                <span class="slider-value" id="contamination-value">0.1</span>
+                            </div>
+                            <div class="config-item">
+                                <label for="validation-split">Validation Split:</label>
+                                <input type="range" id="validation-split" min="0.1" max="0.4" step="0.05" value="0.2">
+                                <span class="slider-value" id="validation-split-value">0.2</span>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    <input type="checkbox" id="lite-mode" checked> Lite Mode
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="training-results" id="training-results" style="display: none;">
+                        <h4>Last Training Results</h4>
+                        <div class="results-grid">
+                            <div class="result-item">
+                                <span class="result-label">Accuracy:</span>
+                                <span class="result-value" id="result-accuracy">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Loss:</span>
+                                <span class="result-value" id="result-loss">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Training Time:</span>
+                                <span class="result-value" id="result-time">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Samples:</span>
+                                <span class="result-value" id="result-samples">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Management -->
+            <section class="panel data-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-database"></i> DATA MANAGEMENT</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshDataStats()">
+                            <i class="fas fa-sync-alt"></i>
+                            REFRESH
+                        </button>
+                        <button class="btn-collect" onclick="collectData()">
+                            <i class="fas fa-download"></i>
+                            COLLECT
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="data-stats">
+                        <div class="stat-item">
+                            <div class="stat-label">TOTAL FILES</div>
+                            <div class="stat-value" id="data-files">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">SAMPLES</div>
+                            <div class="stat-value" id="data-samples">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">SIZE (MB)</div>
+                            <div class="stat-value" id="data-size">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">LAST UPDATED</div>
+                            <div class="stat-value" id="data-updated">--</div>
+                        </div>
+                    </div>
+                    
+                    <div class="data-actions">
+                        <h4>Data Collection</h4>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label for="collect-duration">Duration (minutes):</label>
+                                <input type="number" id="collect-duration" min="1" max="1440" value="10">
+                            </div>
+                            <div class="config-item">
+                                <label for="collect-frequency">Frequency Range:</label>
+                                <input type="text" id="collect-frequency" placeholder="88-108 MHz" value="88-108">
+                            </div>
+                            <div class="config-item">
+                                <label for="sample-rate">Sample Rate:</label>
+                                <select id="sample-rate" class="control-select">
+                                    <option value="1024000">1.024 MHz</option>
+                                    <option value="2048000" selected>2.048 MHz</option>
+                                    <option value="2400000">2.4 MHz</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="version">v1.1.0</span>
+                <span class="separator">|</span>
+                <span class="connection-status" id="connection-status">CONNECTED</span>
+            </div>
+            <div class="footer-right">
+                <span class="timestamp" id="current-time">--:--:--</span>
+                <span class="separator">|</span>
+                <span class="uptime" id="session-uptime">00:00:00</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Notification Container -->
+    <div class="notification-container" id="notifications"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script>
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+        });
+    </script>
+</body>
+</html>

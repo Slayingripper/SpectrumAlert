@@ -102,6 +102,59 @@ class DataStorage:
             logger.error(f"Error saving anomaly: {e}")
             raise StorageError(f"Failed to save anomaly: {e}")
     
+    def get_anomalies_since(self, since: datetime) -> List[AnomalyDetection]:
+        """Get anomalies since a specific datetime"""
+        try:
+            anomalies = []
+            anomalies_dir = os.path.join(self.data_dir, "anomalies")
+            
+            if not os.path.exists(anomalies_dir):
+                return anomalies
+            
+            # Get all anomaly CSV files
+            for filename in os.listdir(anomalies_dir):
+                if filename.startswith("anomalies_") and filename.endswith(".csv"):
+                    filepath = os.path.join(anomalies_dir, filename)
+                    
+                    try:
+                        df = pd.read_csv(filepath)
+                        
+                        for _, row in df.iterrows():
+                            timestamp = datetime.fromisoformat(row['timestamp'])
+                            
+                            # Filter by time
+                            if timestamp >= since:
+                                from spectrum_alert.core.domain.models import AnomalyType, DetectionMode
+                                
+                                anomaly = AnomalyDetection(
+                                    id=row['id'],
+                                    timestamp=timestamp,
+                                    frequency_hz=row['frequency_hz'],
+                                    anomaly_type=AnomalyType(row['anomaly_type']),
+                                    confidence_score=row['confidence_score'],
+                                    severity=row['severity'],
+                                    description=row['description'],
+                                    detection_mode=DetectionMode(row['detection_mode']),
+                                    spectrum_data_id=row['spectrum_data_id'],
+                                    metadata=json.loads(row['metadata']) if pd.notna(row['metadata']) else {}
+                                )
+                                anomalies.append(anomaly)
+                    
+                    except Exception as e:
+                        logger.error(f"Error reading anomaly file {filepath}: {e}")
+                        continue
+            
+            # Sort by timestamp (newest first)
+            anomalies.sort(key=lambda x: x.timestamp, reverse=True)
+            return anomalies
+            
+        except Exception as e:
+            logger.error(f"Error getting anomalies since {since}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error saving anomaly: {e}")
+            raise StorageError(f"Failed to save anomaly: {e}")
+    
     def save_features(self, features: FeatureVector) -> str:
         """Save feature vector"""
         try:

@@ -820,5 +820,43 @@ def live_monitor(
         raise typer.Exit(1)
 
 
+@app.command()
+def web(
+    port: int = typer.Option(8000, "--port", "-p", help="Port to run web interface on"),
+    host: str = typer.Option("0.0.0.0", "--host", help="Host to bind web interface to")
+):
+    """Start the web dashboard interface"""
+    try:
+        import uvicorn
+        from spectrum_alert.web.app import SpectrumAlertWebApp
+        
+        console.print("[bold green]Starting SpectrumAlert Web Dashboard...[/bold green]")
+        console.print(f"[cyan]Dashboard will be available at: http://localhost:{port}[/cyan]")
+        console.print("[yellow]Press Ctrl+C to stop[/yellow]")
+        
+        # Create web app
+        web_app = SpectrumAlertWebApp()
+        app_instance = web_app.app
+        
+        # Run the server
+        uvicorn.run(
+            app_instance,
+            host=host,
+            port=port,
+            log_level="info",
+            access_log=False
+        )
+        
+    except ImportError:
+        console.print("[bold red]Error: Missing web dependencies![/bold red]")
+        console.print("Install with: [cyan]pip install fastapi uvicorn jinja2 python-multipart[/cyan]")
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Web dashboard stopped[/yellow]")
+    except Exception as e:
+        console.print(f"[bold red]Error starting web dashboard: {e}[/bold red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
