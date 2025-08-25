@@ -3,6 +3,7 @@
 SpectrumAlert Web Interface Launcher
 """
 
+import os
 import sys
 import asyncio
 import logging
@@ -21,19 +22,34 @@ def main():
         import uvicorn
         from spectrum_alert.web.app import SpectrumAlertWebApp
         
+        # Get port from environment variable, argument, or use default
+        port = int(os.getenv("SPECTRUM_ALERT_PORT", "8000"))
+        host = os.getenv("SPECTRUM_ALERT_HOST", "0.0.0.0")
+        
+        # Allow command line override via sys.argv if provided
+        if "--port" in sys.argv:
+            port_index = sys.argv.index("--port")
+            if port_index + 1 < len(sys.argv):
+                port = int(sys.argv[port_index + 1])
+        
+        if "--host" in sys.argv:
+            host_index = sys.argv.index("--host")
+            if host_index + 1 < len(sys.argv):
+                host = sys.argv[host_index + 1]
+        
         # Create web app
         web_app = SpectrumAlertWebApp()
         app_instance = web_app.app
         
         logger.info("Starting SpectrumAlert Web Dashboard...")
-        logger.info("Dashboard will be available at: http://localhost:8000")
+        logger.info(f"Dashboard will be available at: http://localhost:{port}")
         logger.info("Press Ctrl+C to stop")
         
         # Run the server
         uvicorn.run(
             app_instance,
-            host="0.0.0.0",
-            port=8000,
+            host=host,
+            port=port,
             log_level="info",
             access_log=True
         )

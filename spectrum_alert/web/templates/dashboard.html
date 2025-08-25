@@ -176,6 +176,11 @@
                 <div class="panel-header">
                     <h2><i class="fas fa-brain"></i> MODEL STATUS</h2>
                     <div class="panel-controls">
+                        <select class="control-select" id="model-type-select">
+                            <option value="isolation_forest">Isolation Forest</option>
+                            <option value="autoencoder">Autoencoder</option>
+                            <option value="one_class_svm">One-Class SVM</option>
+                        </select>
                         <button class="btn-retrain" onclick="retrainModel()">
                             <i class="fas fa-sync"></i>
                             RETRAIN
@@ -183,6 +188,27 @@
                     </div>
                 </div>
                 <div class="panel-content">
+                    <div class="training-config">
+                        <h4>Training Configuration</h4>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label for="dataset-select">Dataset:</label>
+                                <select class="control-select" id="dataset-select">
+                                    <option value="all">All Data</option>
+                                    <option value="recent">Recent (24h)</option>
+                                    <option value="custom">Custom Range</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="training-epochs">Epochs:</label>
+                                <input type="number" id="training-epochs" min="10" max="1000" value="100">
+                            </div>
+                            <div class="config-item">
+                                <label for="contamination">Contamination:</label>
+                                <input type="number" id="contamination" min="0.01" max="0.5" step="0.01" value="0.1">
+                            </div>
+                        </div>
+                    </div>
                     <div class="model-stats">
                         <div class="model-stat">
                             <div class="stat-label">ACCURACY</div>
@@ -571,6 +597,21 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <div class="data-browse">
+                        <h4>Dataset Management</h4>
+                        <div class="dataset-controls">
+                            <button class="btn-browse" onclick="loadDataFiles()">
+                                <i class="fas fa-folder-open"></i> Browse Files
+                            </button>
+                            <button class="btn-analyze" onclick="analyzeSelectedData()">
+                                <i class="fas fa-chart-line"></i> Analyze
+                            </button>
+                        </div>
+                        <div class="data-file-list" id="data-file-list">
+                            <!-- Data files will be loaded here -->
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -594,7 +635,10 @@
     <div class="notification-container" id="notifications"></div>
 
     <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/enhanced-features.js"></script>
+    <script src="/static/js/gui-enhancements.js"></script>
     <script src="/static/js/websocket.js"></script>
     <script>
         // Initialize dashboard when page loads

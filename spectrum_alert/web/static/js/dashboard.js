@@ -12,18 +12,25 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Dashboard initializing...');
     initializeWebSocket();
     loadDataStats();
+    loadDataFiles(); // Load available data files
     loadTrainingStatus();
     loadModelStatus();
     loadAnalytics();
+    loadSpectrumAnalysis(); // Load real spectrum analysis
     loadSystemStatus();
     loadMQTTStatus();
     loadRecentAnomalies();
+    loadMonitoringStatus(); // Check initial monitoring status
     startDataStatsRefresh();
     startSystemStatsRefresh();
     startModelStatusRefresh();
     startAnalyticsRefresh();
+    startSpectrumRefresh(); // Start spectrum analysis refresh
     updateTimestamp();
     setInterval(updateTimestamp, 1000);
+    
+    // Add slider value updates for training configuration
+    setupTrainingConfigSliders();
 });
 
 // WebSocket connection management
@@ -535,18 +542,50 @@ function clearAlerts() {
 }
 
 function retrainModel() {
-    // This will use the existing trainModel function
-    trainModel();
+    // Enhanced retrain function with better feedback
+    if (trainingInProgress) {
+        showNotification('⚠️ Training already in progress', 'warning');
+        return;
+    }
+    
+    showNotification('🔄 Starting model retraining...', 'info');
+    
+    // Update UI to show retraining has started
+    const retrainBtn = document.querySelector('.btn-retrain');
+    if (retrainBtn) {
+        retrainBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> RETRAINING';
+        retrainBtn.disabled = true;
+    }
+    
+    // Call the main training function with additional retrain feedback
+    trainModel().then(() => {
+        showNotification('✅ Model retrained successfully!', 'success');
+        // Refresh model status to show updated metrics
+        setTimeout(() => {
+            loadModelStatus();
+        }, 2000);
+    }).catch((error) => {
+        showNotification('❌ Retraining failed: ' + error.message, 'error');
+    }).finally(() => {
+        // Reset retrain button
+        if (retrainBtn) {
+            retrainBtn.innerHTML = '<i class="fas fa-sync"></i> RETRAIN';
+            retrainBtn.disabled = false;
+        }
+    });
 }
 
 // Monitoring Control Functions
 async function startMonitoring() {
     if (currentMonitoring) {
         console.log('Monitoring already in progress');
+        showNotification('Monitoring is already active', 'warning');
         return;
     }
 
     try {
+        showNotification('Starting spectrum monitoring...', 'info');
+        
         const response = await fetch('/api/monitoring/start', {
             method: 'POST',
             headers: {
@@ -555,26 +594,40 @@ async function startMonitoring() {
         });
 
         if (response.ok) {
+            const result = await response.json();
             currentMonitoring = true;
             updateMonitoringUI(true);
+            
+            // Update status indicators
+            updateStatusIndicator('monitor-status', true);
+            updateStatusIndicator('system-status', true);
+            
             console.log('Monitoring started successfully');
+            showNotification('✅ Spectrum monitoring started successfully!', 'success');
+            
+            // Start polling for monitoring status
+            startMonitoringStatusPolling();
+            
         } else {
             console.error('Failed to start monitoring:', response.statusText);
-            alert('Failed to start monitoring. Check console for details.');
+            showNotification('❌ Failed to start monitoring: ' + response.statusText, 'error');
         }
     } catch (error) {
         console.error('Error starting monitoring:', error);
-        alert('Error starting monitoring. Check console for details.');
+        showNotification('❌ Error starting monitoring: ' + error.message, 'error');
     }
 }
 
 async function stopMonitoring() {
     if (!currentMonitoring) {
         console.log('Monitoring not currently active');
+        showNotification('Monitoring is not currently active', 'warning');
         return;
     }
 
     try {
+        showNotification('Stopping spectrum monitoring...', 'info');
+        
         const response = await fetch('/api/monitoring/stop', {
             method: 'POST',
             headers: {
@@ -583,16 +636,106 @@ async function stopMonitoring() {
         });
 
         if (response.ok) {
+            const result = await response.json();
             currentMonitoring = false;
             updateMonitoringUI(false);
+            
+            // Update status indicators
+            updateStatusIndicator('monitor-status', false);
+            
             console.log('Monitoring stopped successfully');
+            showNotification('🛑 Spectrum monitoring stopped', 'success');
+            
+            // Stop monitoring status polling
+            stopMonitoringStatusPolling();
+            
         } else {
             console.error('Failed to stop monitoring:', response.statusText);
-            alert('Failed to stop monitoring. Check console for details.');
+            showNotification('❌ Failed to stop monitoring: ' + response.statusText, 'error');
         }
     } catch (error) {
         console.error('Error stopping monitoring:', error);
-        alert('Error stopping monitoring. Check console for details.');
+        showNotification('❌ Error stopping monitoring: ' + error.message, 'error');
+    }
+}
+
+let monitoringStatusInterval = null;
+
+function startMonitoringStatusPolling() {
+    // Clear any existing interval
+    if (monitoringStatusInterval) {
+        clearInterval(monitoringStatusInterval);
+    }
+    
+    // Poll monitoring status every 3 seconds
+    monitoringStatusInterval = setInterval(async () => {
+        try {
+            const response = await fetch('/api/monitoring/status');
+            if (response.ok) {
+                const result = await response.json();
+                if (result.status === 'ok' && result.data) {
+                    const isActive = result.data.active || false;
+                    const deviceInfo = result.data.device_info || {};
+                    
+                    // Update UI state if it doesn't match
+                    if (currentMonitoring !== isActive) {
+                        currentMonitoring = isActive;
+                        updateMonitoringUI(isActive);
+                        updateStatusIndicator('monitor-status', isActive);
+                        
+                        if (isActive) {
+                            showNotification('📡 Monitoring detected as active', 'success');
+                        }
+                    }
+                    
+                    // Update device info if available
+                    if (deviceInfo.frequency_hz) {
+                        updateElementText('current-frequency', (deviceInfo.frequency_hz / 1e6).toFixed(2) + ' MHz');
+                    }
+                    if (deviceInfo.sample_rate) {
+                        updateElementText('sample-rate', (deviceInfo.sample_rate / 1e6).toFixed(1) + ' MS/s');
+                    }
+                    if (deviceInfo.gain !== undefined) {
+                        updateElementText('current-gain', deviceInfo.gain.toFixed(1) + ' dB');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error polling monitoring status:', error);
+        }
+    }, 3000);
+}
+
+function stopMonitoringStatusPolling() {
+    if (monitoringStatusInterval) {
+        clearInterval(monitoringStatusInterval);
+        monitoringStatusInterval = null;
+    }
+}
+
+// Load initial monitoring status
+async function loadMonitoringStatus() {
+    try {
+        const response = await fetch('/api/monitoring/status');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.data) {
+                const isActive = result.data.active || false;
+                currentMonitoring = isActive;
+                updateMonitoringUI(isActive);
+                updateStatusIndicator('monitor-status', isActive);
+                updateStatusIndicator('system-status', isActive);
+                
+                console.log(`Initial monitoring status: ${isActive ? 'ACTIVE' : 'INACTIVE'}`);
+                
+                if (isActive) {
+                    showNotification('📡 Monitoring is currently active', 'success');
+                    startMonitoringStatusPolling(); // Start polling if already active
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading monitoring status:', error);
     }
 }
 
@@ -610,20 +753,45 @@ function updateMonitoringUI(isMonitoring) {
 async function trainModel() {
     if (trainingInProgress) {
         console.log('Training already in progress');
+        showNotification('Training already in progress', 'warning');
         return;
     }
 
     try {
+        // Get model type from the new selector
+        const modelType = document.getElementById('model-type-select')?.value || 'isolation_forest';
+        
+        // Get dataset selection from the new selector
+        const datasetSelect = document.getElementById('dataset-select')?.value || 'all';
+        
+        // Get training configuration
+        const epochs = parseInt(document.getElementById('training-epochs')?.value || 100);
+        const contamination = parseFloat(document.getElementById('contamination')?.value || 0.1);
+        
         // Get configuration values
         const config = {
-            epochs: parseInt(document.getElementById('epochs')?.value || 100),
-            batch_size: parseInt(document.getElementById('batchSize')?.value || 32),
-            learning_rate: parseFloat(document.getElementById('learningRate')?.value || 0.001),
-            validation_split: parseFloat(document.getElementById('validationSplit')?.value || 0.2),
+            model_type: modelType,
+            dataset: datasetSelect,
+            epochs: epochs,
+            contamination: contamination,
             save_model: true
         };
 
+        // Create training details message
+        let trainingDetails = `Model Type: ${modelType}\nDataset: ${datasetSelect}\nEpochs: ${epochs}\nContamination: ${contamination}`;
+        
         console.log('Starting model training with config:', config);
+        showNotification(`🔄 Starting ${modelType} training...\n${trainingDetails}`, 'info');
+        
+        // Show detailed training info in the UI
+        updateTrainingProgressDisplay({
+            model_type: modelType,
+            dataset: datasetSelect,
+            status: 'Initializing...',
+            progress: 0,
+            epochs: epochs,
+            contamination: contamination
+        });
         
         const response = await fetch('/api/model/train', {
             method: 'POST',
@@ -639,16 +807,110 @@ async function trainModel() {
             updateTrainingUI(true);
             console.log('Training started:', result);
             
+            showNotification(`✅ Training started successfully!\nModel: ${modelType}\nDataset: ${datasetSelect}`, 'success');
+            
             // Start polling for training status
             startTrainingStatusPolling();
         } else {
             const error = await response.text();
             console.error('Failed to start training:', error);
-            alert('Failed to start training: ' + error);
+            showNotification('❌ Failed to start training: ' + error, 'error');
         }
     } catch (error) {
         console.error('Error starting training:', error);
-        alert('Error starting training. Check console for details.');
+        showNotification('❌ Error starting training: ' + error.message, 'error');
+    }
+}
+
+function updateTrainingProgressDisplay(details) {
+    // Check if we have a training progress display, if not create it
+    let progressDisplay = document.getElementById('training-progress-display');
+    if (!progressDisplay) {
+        const trainingPanel = document.querySelector('.training-panel .panel-content');
+        if (trainingPanel) {
+            const progressHTML = `
+                <div id="training-progress-display" class="training-progress-detailed" style="
+                    background: #2a2a2a; border: 1px solid #ffaa00; border-radius: 5px; 
+                    padding: 15px; margin-bottom: 15px; display: none;
+                ">
+                    <div class="progress-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 style="color: #ffaa00; margin: 0;"><i class="fas fa-brain"></i> Training Progress</h4>
+                        <button onclick="hideTrainingProgress()" style="
+                            background: transparent; border: 1px solid #888; color: #888; 
+                            padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;
+                        ">Hide</button>
+                    </div>
+                    
+                    <div class="training-details" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                        <div class="detail-item">
+                            <div style="color: #888; font-size: 11px;">Model Type</div>
+                            <div id="training-model-type" style="color: #ffaa00; font-weight: bold;"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div style="color: #888; font-size: 11px;">Dataset</div>
+                            <div id="training-dataset" style="color: #00aaff; font-weight: bold;"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div style="color: #888; font-size: 11px;">Status</div>
+                            <div id="training-status-text" style="color: #00ff88; font-weight: bold;"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div style="color: #888; font-size: 11px;">Progress</div>
+                            <div id="training-progress-text" style="color: #ffffff; font-weight: bold;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-bar-container" style="background: #1a1a1a; border-radius: 10px; height: 20px; overflow: hidden; position: relative;">
+                        <div id="training-progress-bar" class="progress-bar-fill" style="
+                            background: linear-gradient(90deg, #ffaa00, #ff6600); 
+                            height: 100%; width: 0%; transition: width 0.3s ease;
+                        "></div>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #000; font-size: 11px; font-weight: bold;">
+                            <span id="training-progress-percentage">0%</span>
+                        </div>
+                    </div>
+                    
+                    <div id="training-metrics" class="training-metrics" style="
+                        margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 5px; 
+                        font-family: monospace; font-size: 10px; color: #888; display: none;
+                    "></div>
+                </div>
+            `;
+            trainingPanel.insertAdjacentHTML('afterbegin', progressHTML);
+            progressDisplay = document.getElementById('training-progress-display');
+        }
+    }
+    
+    if (progressDisplay) {
+        document.getElementById('training-model-type').textContent = details.model_type || 'Unknown';
+        document.getElementById('training-dataset').textContent = details.dataset || 'Default';
+        document.getElementById('training-status-text').textContent = details.status || 'Ready';
+        
+        const progress = details.progress || 0;
+        document.getElementById('training-progress-text').textContent = `${progress}%`;
+        document.getElementById('training-progress-bar').style.width = `${progress}%`;
+        document.getElementById('training-progress-percentage').textContent = `${progress}%`;
+        
+        progressDisplay.style.display = 'block';
+        
+        // Update metrics if available
+        if (details.metrics) {
+            const metricsDiv = document.getElementById('training-metrics');
+            metricsDiv.innerHTML = `
+                <div>Epoch: ${details.metrics.epoch || 'N/A'}</div>
+                <div>Loss: ${details.metrics.loss || 'N/A'}</div>
+                <div>Accuracy: ${details.metrics.accuracy || 'N/A'}</div>
+                <div>ETA: ${details.metrics.eta || 'N/A'}</div>
+            `;
+            metricsDiv.style.display = 'block';
+        }
+    }
+}
+
+function hideTrainingProgress() {
+    const progressDisplay = document.getElementById('training-progress-display');
+    if (progressDisplay) {
+        progressDisplay.style.display = 'none';
     }
 }
 
@@ -756,7 +1018,7 @@ function startTrainingStatusPolling() {
 }
 
 function updateTrainingStatus(status) {
-    // Update progress bar
+    // Update progress bar (original functionality)
     const progressFill = document.querySelector('.progress-fill');
     const progressText = document.querySelector('.progress-text');
     
@@ -780,6 +1042,32 @@ function updateTrainingStatus(status) {
     updateStatusValue('training-active', status.active ? 'Yes' : 'No');
     updateStatusValue('training-progress', `${status.progress}%`);
     updateStatusValue('last-training', status.last_training_time || 'Never');
+    
+    // Update detailed progress display if it exists
+    const progressDisplay = document.getElementById('training-progress-display');
+    if (progressDisplay && progressDisplay.style.display !== 'none') {
+        updateTrainingProgressDisplay({
+            model_type: status.model_type || 'Unknown',
+            dataset: status.dataset || 'Default',
+            status: status.status || 'Ready',
+            progress: status.progress || 0,
+            metrics: status.metrics
+        });
+    }
+    
+    // Show notifications for important status changes
+    if (status.active && !trainingInProgress) {
+        showNotification(`🔄 Training in progress: ${status.status}`, 'info');
+        trainingInProgress = true;
+    } else if (!status.active && trainingInProgress) {
+        showNotification(`✅ Training completed: ${status.status}`, 'success');
+        trainingInProgress = false;
+        
+        // Auto-refresh model status after training completes
+        setTimeout(() => {
+            loadModelStatus();
+        }, 2000);
+    }
 }
 
 function updateStatusValue(id, value) {
@@ -821,7 +1109,7 @@ async function loadDataStats() {
         const response = await fetch('/api/data/stats');
         if (response.ok) {
             const result = await response.json();
-            if (result.status === 'success' && result.data) {
+            if (result.status === 'ok' && result.data) {
                 updateDataStats(result.data);
             } else {
                 console.error('Error in data stats response:', result.message);
@@ -833,16 +1121,16 @@ async function loadDataStats() {
 }
 
 function updateDataStats(stats) {
-    updateStatValue('total-samples', stats.total_samples || 0);
-    updateStatValue('training-samples', stats.total_files || 0);
-    updateStatValue('test-samples', Math.floor((stats.total_samples || 0) * 0.2));
-    updateStatValue('anomaly-samples', Math.floor((stats.total_samples || 0) * 0.1));
+    updateElementContent('data-files', stats.total_files || 0);
+    updateElementContent('data-samples', (stats.total_samples || 0).toLocaleString());
+    updateElementContent('data-size', (stats.data_size_mb || 0).toFixed(1));
+    updateElementContent('data-updated', stats.last_updated || 'Never');
 }
 
-function updateStatValue(id, value) {
+function updateElementContent(id, value) {
     const element = document.getElementById(id);
     if (element) {
-        element.textContent = value.toLocaleString();
+        element.textContent = value;
     }
 }
 
@@ -854,13 +1142,43 @@ function startDataStatsRefresh() {
 async function collectData() {
     try {
         console.log('Starting data collection...');
-        showNotification('Starting data collection...', 'info');
         
+        // Get collection parameters from UI
+        const duration = document.getElementById('collect-duration')?.value || 10;
+        const frequency = document.getElementById('collect-frequency')?.value || '88-108';
+        const sampleRate = document.getElementById('sample-rate')?.value || 2048000;
+        
+        // Parse frequency range and calculate center frequency
+        let centerFreq, startFreq, endFreq;
+        if (frequency.includes('-')) {
+            const freqParts = frequency.split('-');
+            startFreq = parseFloat(freqParts[0]);
+            endFreq = parseFloat(freqParts[1]);
+            centerFreq = (startFreq + endFreq) / 2; // Use center of range
+        } else {
+            centerFreq = parseFloat(frequency);
+            startFreq = centerFreq;
+            endFreq = centerFreq;
+        }
+        
+        const config = {
+            duration_minutes: parseInt(duration),
+            center_frequency: centerFreq * 1e6, // Convert MHz to Hz
+            frequency_start: startFreq * 1e6,
+            frequency_end: endFreq * 1e6,
+            sample_rate: parseInt(sampleRate)
+        };
+
+        // Show estimated completion time with frequency info
+        const estimatedCompleteTime = new Date(Date.now() + (parseInt(duration) * 60 * 1000));
+        showNotification(`Starting ${duration} minute data collection on ${startFreq}-${endFreq} MHz... Expected completion: ${estimatedCompleteTime.toLocaleTimeString()}`, 'info');
+
         const response = await fetch('/api/data/collect', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify(config)
         });
 
         if (response.ok) {
@@ -868,14 +1186,15 @@ async function collectData() {
             console.log('Data collection result:', result);
             
             if (result.status === 'success') {
-                showNotification(`Data collection completed: ${result.message}`, 'success');
+                showNotification(`✅ ${result.message}`, 'success');
                 
                 // Show collection details if available
                 if (result.data) {
+                    const durationMins = (result.data.duration_seconds / 60).toFixed(1);
                     const details = `
                         Frequency: ${(result.data.frequency_hz / 1e6).toFixed(2)} MHz
-                        Duration: ${result.data.duration_seconds}s
-                        Samples: ${result.data.sample_count}
+                        Duration: ${durationMins} minutes (${result.data.duration_seconds}s)
+                        Samples: ${result.data.sample_count.toLocaleString()}
                         Timestamp: ${new Date(result.data.timestamp).toLocaleString()}
                     `;
                     console.log('Collection details:', details);
@@ -883,6 +1202,10 @@ async function collectData() {
                 
                 // Refresh stats after a short delay
                 setTimeout(loadDataStats, 2000);
+                // Also refresh file list if it's open
+                if (window.dataFilesLoaded) {
+                    setTimeout(loadDataFiles, 2000);
+                }
             } else {
                 showNotification(`Data collection failed: ${result.message}`, 'error');
             }
@@ -900,6 +1223,388 @@ async function collectData() {
 async function refreshDataStats() {
     console.log('Refreshing data statistics...');
     await loadDataStats();
+    showNotification('Data statistics refreshed', 'success');
+}
+
+// Enhanced Data Management Functions
+window.dataFilesLoaded = false;
+
+async function loadDataFiles() {
+    try {
+        const response = await fetch('/api/data/files');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.data) {
+                displayDataFiles(result.data.files);
+                window.dataFilesLoaded = true;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading data files:', error);
+        showNotification('Error loading data files', 'error');
+    }
+}
+
+function displayDataFiles(files) {
+    // Check if we have a data files display area, if not create it
+    let dataFilesContainer = document.getElementById('data-files-container');
+    if (!dataFilesContainer) {
+        // Create and insert data files display area
+        const dataPanel = document.querySelector('.data-panel .panel-content');
+        if (dataPanel) {
+            const dataFilesHTML = `
+                <div id="data-files-container" class="data-files-section" style="margin-top: 20px;">
+                    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="color: #00ff88; margin: 0;"><i class="fas fa-folder-open"></i> Data Files</h4>
+                        <div class="data-file-controls">
+                            <button class="btn-small" onclick="loadDataFiles()" style="background: #1a1a1a; border: 1px solid #00ff88; color: #00ff88; padding: 5px 10px; margin-right: 5px;">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button class="btn-small" onclick="showDatasetSelector()" style="background: #1a1a1a; border: 1px solid #00aaff; color: #00aaff; padding: 5px 10px;">
+                                <i class="fas fa-database"></i> Datasets
+                            </button>
+                        </div>
+                    </div>
+                    <div id="data-files-list" class="data-files-list"></div>
+                </div>
+            `;
+            dataPanel.insertAdjacentHTML('beforeend', dataFilesHTML);
+            dataFilesContainer = document.getElementById('data-files-container');
+        }
+    }
+    
+    const filesList = document.getElementById('data-files-list');
+    if (!filesList) return;
+    
+    if (files.length === 0) {
+        filesList.innerHTML = '<div class="no-files">No data files found. Start monitoring to collect data.</div>';
+        return;
+    }
+    
+    let filesHTML = '<div class="files-grid">';
+    
+    files.slice(0, 10).forEach(file => { // Show only first 10 files
+        const fileTypeIcon = file.type === 'csv' ? 'fa-file-csv' : 'fa-file-code';
+        const freqInfo = file.frequency_range ? 
+            `${(file.frequency_range.min_hz / 1e6).toFixed(1)}-${(file.frequency_range.max_hz / 1e6).toFixed(1)} MHz` : 
+            'Unknown freq';
+        
+        filesHTML += `
+            <div class="file-item" onclick="analyzeDataFile('${file.filename}')">
+                <div class="file-icon"><i class="fas ${fileTypeIcon}"></i></div>
+                <div class="file-info">
+                    <div class="file-name">${file.filename}</div>
+                    <div class="file-details">
+                        <span class="file-size">${file.size_mb} MB</span>
+                        <span class="file-samples">${file.samples.toLocaleString()} samples</span>
+                        <span class="file-freq">${freqInfo}</span>
+                    </div>
+                    <div class="file-date">${new Date(file.modified).toLocaleDateString()}</div>
+                </div>
+            </div>
+        `;
+    });
+    
+    if (files.length > 10) {
+        filesHTML += `<div class="more-files">... and ${files.length - 10} more files</div>`;
+    }
+    
+    filesHTML += '</div>';
+    filesList.innerHTML = filesHTML;
+}
+
+async function analyzeDataFile(filename) {
+    try {
+        showNotification(`Analyzing file: ${filename}`, 'info');
+        
+        const response = await fetch(`/api/data/file/${encodeURIComponent(filename)}`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.data) {
+                showFileAnalysis(result.data);
+            } else {
+                showNotification(`Analysis failed: ${result.message}`, 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Error analyzing file:', error);
+        showNotification('Error analyzing file', 'error');
+    }
+}
+
+function showFileAnalysis(analysis) {
+    // Create modal or panel to show file analysis
+    const modalHTML = `
+        <div class="analysis-modal" id="file-analysis-modal" style="
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); z-index: 1000; display: flex; 
+            align-items: center; justify-content: center;
+        ">
+            <div class="analysis-content" style="
+                background: #1a1a1a; border: 2px solid #00ff88; border-radius: 10px; 
+                max-width: 800px; max-height: 80vh; overflow-y: auto; padding: 20px;
+                color: #ffffff;
+            ">
+                <div class="analysis-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="color: #00ff88; margin: 0;"><i class="fas fa-chart-line"></i> File Analysis: ${analysis.filename}</h3>
+                    <button onclick="closeFileAnalysis()" style="background: #ff4444; border: none; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="analysis-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                    <div class="stat-box" style="background: #2a2a2a; padding: 15px; border-radius: 5px; border-left: 4px solid #00ff88;">
+                        <div class="stat-label" style="color: #888; font-size: 12px;">File Size</div>
+                        <div class="stat-value" style="color: #00ff88; font-size: 18px; font-weight: bold;">${analysis.size_mb} MB</div>
+                    </div>
+                    <div class="stat-box" style="background: #2a2a2a; padding: 15px; border-radius: 5px; border-left: 4px solid #00aaff;">
+                        <div class="stat-label" style="color: #888; font-size: 12px;">Total Samples</div>
+                        <div class="stat-value" style="color: #00aaff; font-size: 18px; font-weight: bold;">${analysis.samples.toLocaleString()}</div>
+                    </div>
+                    <div class="stat-box" style="background: #2a2a2a; padding: 15px; border-radius: 5px; border-left: 4px solid #ffaa00;">
+                        <div class="stat-label" style="color: #888; font-size: 12px;">Columns</div>
+                        <div class="stat-value" style="color: #ffaa00; font-size: 18px; font-weight: bold;">${analysis.columns.length}</div>
+                    </div>
+                </div>
+                
+                ${analysis.frequency_analysis && Object.keys(analysis.frequency_analysis).length > 0 ? `
+                <div class="frequency-analysis" style="margin-bottom: 20px;">
+                    <h4 style="color: #00aaff; margin-bottom: 10px;"><i class="fas fa-radio"></i> Frequency Analysis</h4>
+                    <div style="background: #2a2a2a; padding: 15px; border-radius: 5px;">
+                        <p><strong>Range:</strong> ${(analysis.frequency_analysis.min_hz / 1e6).toFixed(2)} - ${(analysis.frequency_analysis.max_hz / 1e6).toFixed(2)} MHz</p>
+                        <p><strong>Center:</strong> ${(analysis.frequency_analysis.mean_hz / 1e6).toFixed(2)} MHz</p>
+                        <p><strong>Unique Frequencies:</strong> ${analysis.frequency_analysis.unique_frequencies}</p>
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${analysis.signal_statistics && Object.keys(analysis.signal_statistics).length > 0 ? `
+                <div class="signal-analysis" style="margin-bottom: 20px;">
+                    <h4 style="color: #ffaa00; margin-bottom: 10px;"><i class="fas fa-signal"></i> Signal Statistics</h4>
+                    <div style="background: #2a2a2a; padding: 15px; border-radius: 5px;">
+                        <p><strong>Range:</strong> ${analysis.signal_statistics.min.toFixed(2)} to ${analysis.signal_statistics.max.toFixed(2)} dBm</p>
+                        <p><strong>Average:</strong> ${analysis.signal_statistics.mean.toFixed(2)} dBm</p>
+                        <p><strong>Std Dev:</strong> ${analysis.signal_statistics.std.toFixed(2)} dBm</p>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div class="preview-data" style="margin-bottom: 20px;">
+                    <h4 style="color: #ff88aa; margin-bottom: 10px;"><i class="fas fa-table"></i> Data Preview</h4>
+                    <div style="background: #2a2a2a; padding: 15px; border-radius: 5px; max-height: 300px; overflow: auto;">
+                        <table style="width: 100%; color: #ffffff; font-size: 12px; font-family: monospace;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #444;">
+                                    ${analysis.columns.map(col => `<th style="padding: 5px; text-align: left; color: #00ff88;">${col}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${analysis.preview_data.slice(0, 5).map(row => 
+                                    `<tr>${analysis.columns.map(col => `<td style="padding: 5px;">${typeof row[col] === 'number' ? row[col].toFixed(3) : row[col]}</td>`).join('')}</tr>`
+                                ).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="analysis-actions" style="display: flex; gap: 10px; justify-content: center;">
+                    <button onclick="useFileForTraining('${analysis.filename}')" style="
+                        background: #00ff88; color: #000; border: none; padding: 10px 20px; 
+                        border-radius: 5px; cursor: pointer; font-weight: bold;
+                    ">
+                        <i class="fas fa-brain"></i> Use for Training
+                    </button>
+                    <button onclick="exportFileAnalysis('${analysis.filename}')" style="
+                        background: #00aaff; color: #fff; border: none; padding: 10px 20px; 
+                        border-radius: 5px; cursor: pointer; font-weight: bold;
+                    ">
+                        <i class="fas fa-download"></i> Export Analysis
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    showNotification(`Analysis complete for ${analysis.filename}`, 'success');
+}
+
+function closeFileAnalysis() {
+    const modal = document.getElementById('file-analysis-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function useFileForTraining(filename) {
+    // Close analysis modal
+    closeFileAnalysis();
+    
+    // Set the filename in training section and show training options
+    showNotification(`Selected ${filename} for model training`, 'info');
+    
+    // Could set a hidden field or variable to remember the selected file
+    window.selectedTrainingFile = filename;
+    
+    // Scroll to training section
+    const trainingSection = document.querySelector('.training-panel');
+    if (trainingSection) {
+        trainingSection.scrollIntoView({ behavior: 'smooth' });
+        // Highlight the training section briefly
+        trainingSection.style.boxShadow = '0 0 20px #00ff88';
+        setTimeout(() => {
+            trainingSection.style.boxShadow = '';
+        }, 3000);
+    }
+}
+
+function exportFileAnalysis(filename) {
+    // Close analysis modal
+    closeFileAnalysis();
+    showNotification(`Exporting analysis for ${filename}...`, 'info');
+    // Implementation for exporting analysis data
+}
+
+async function showDatasetSelector() {
+    try {
+        const response = await fetch('/api/data/datasets');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.data) {
+                displayDatasetSelector(result.data.datasets);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading datasets:', error);
+        showNotification('Error loading datasets', 'error');
+    }
+}
+
+function displayDatasetSelector(datasets) {
+    const modalHTML = `
+        <div class="dataset-modal" id="dataset-selector-modal" style="
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); z-index: 1000; display: flex; 
+            align-items: center; justify-content: center;
+        ">
+            <div class="dataset-content" style="
+                background: #1a1a1a; border: 2px solid #00aaff; border-radius: 10px; 
+                max-width: 900px; max-height: 80vh; overflow-y: auto; padding: 20px;
+                color: #ffffff;
+            ">
+                <div class="dataset-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="color: #00aaff; margin: 0;"><i class="fas fa-database"></i> Available Datasets</h3>
+                    <button onclick="closeDatasetSelector()" style="background: #ff4444; border: none; color: white; padding: 8px 12px; border-radius: 5px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="datasets-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
+                    ${datasets.map(dataset => `
+                        <div class="dataset-item" onclick="selectDataset('${dataset.name}', '${dataset.type}')" style="
+                            background: #2a2a2a; border: 1px solid #444; border-radius: 8px; padding: 15px; 
+                            cursor: pointer; transition: all 0.3s;
+                        " onmouseover="this.style.borderColor='#00aaff'" onmouseout="this.style.borderColor='#444'">
+                            <div class="dataset-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <h4 style="color: #00aaff; margin: 0; font-size: 14px;">${dataset.name}</h4>
+                                <span class="dataset-type" style="
+                                    background: ${dataset.type === 'directory' ? '#00ff88' : dataset.type === 'file' ? '#ffaa00' : '#ff88aa'}; 
+                                    color: #000; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;
+                                ">${dataset.type}</span>
+                            </div>
+                            <div class="dataset-info" style="font-size: 12px; color: #ccc;">
+                                <div style="margin-bottom: 5px;"><i class="fas fa-files-o"></i> ${dataset.file_count} files (${dataset.csv_files} CSV, ${dataset.json_files} JSON)</div>
+                                <div style="margin-bottom: 5px;"><i class="fas fa-hdd"></i> ${dataset.size_mb.toFixed(1)} MB</div>
+                                <div style="color: #888; font-style: italic;">${dataset.description}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                
+                <div style="margin-top: 20px; text-align: center; color: #888; font-size: 12px;">
+                    Click on a dataset to select it for model training
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+function closeDatasetSelector() {
+    const modal = document.getElementById('dataset-selector-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function selectDataset(datasetName, datasetType) {
+    closeDatasetSelector();
+    window.selectedDataset = { name: datasetName, type: datasetType };
+    showNotification(`Selected dataset: ${datasetName}`, 'success');
+    
+    // Update training interface to show selected dataset
+    const trainingSection = document.querySelector('.training-panel');
+    if (trainingSection) {
+        trainingSection.scrollIntoView({ behavior: 'smooth' });
+        trainingSection.style.boxShadow = '0 0 20px #00aaff';
+        setTimeout(() => {
+            trainingSection.style.boxShadow = '';
+        }, 3000);
+    }
+    
+    // Update dataset display in training section if it exists
+    updateTrainingDatasetDisplay(datasetName, datasetType);
+}
+
+function updateTrainingDatasetDisplay(datasetName, datasetType) {
+    // Check if there's a dataset display area in the training section
+    let datasetDisplay = document.getElementById('selected-dataset-display');
+    if (!datasetDisplay) {
+        // Create dataset display area in training section
+        const trainingPanel = document.querySelector('.training-panel .panel-content');
+        if (trainingPanel) {
+            const datasetHTML = `
+                <div id="selected-dataset-display" class="selected-dataset" style="
+                    background: #2a2a2a; border: 1px solid #00aaff; border-radius: 5px; 
+                    padding: 10px; margin-bottom: 15px; display: none;
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <i class="fas fa-database" style="color: #00aaff;"></i>
+                            <span style="color: #00aaff; font-weight: bold; margin-left: 5px;">Selected Dataset:</span>
+                            <span id="dataset-name-display" style="color: #ffffff; margin-left: 10px;"></span>
+                            <span id="dataset-type-display" style="
+                                background: #00aaff; color: #000; padding: 2px 6px; 
+                                border-radius: 3px; font-size: 10px; margin-left: 10px;
+                            "></span>
+                        </div>
+                        <button onclick="clearSelectedDataset()" style="
+                            background: transparent; border: 1px solid #ff4444; color: #ff4444; 
+                            padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;
+                        ">Clear</button>
+                    </div>
+                </div>
+            `;
+            trainingPanel.insertAdjacentHTML('afterbegin', datasetHTML);
+            datasetDisplay = document.getElementById('selected-dataset-display');
+        }
+    }
+    
+    if (datasetDisplay) {
+        document.getElementById('dataset-name-display').textContent = datasetName;
+        document.getElementById('dataset-type-display').textContent = datasetType;
+        datasetDisplay.style.display = 'block';
+    }
+}
+
+function clearSelectedDataset() {
+    window.selectedDataset = null;
+    const datasetDisplay = document.getElementById('selected-dataset-display');
+    if (datasetDisplay) {
+        datasetDisplay.style.display = 'none';
+    }
+    showNotification('Dataset selection cleared', 'info');
 }
 
 // WebSocket Event Handlers (called from websocket.js)
