@@ -1147,7 +1147,7 @@ class SpectrumAlertWebApp:
             """Start data collection process"""
             try:
                 collection_config = config or {
-                    "duration_minutes": 30,
+                    "duration_minutes": 0.017,  # 1 second (0.017 minutes) - very small for testing
                     "output_file": f"spectrum_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     "sample_rate": 2e6,
                     "center_frequency": 433e6,
@@ -1156,6 +1156,9 @@ class SpectrumAlertWebApp:
                 
                 # Log the received configuration for debugging
                 logger.info(f"Data collection started with config: {collection_config}")
+                
+                # Calculate duration first (outside try block for scope) - use very small duration for testing
+                duration_seconds = min(collection_config.get("duration_minutes", 0.017) * 60, 1 * 60)  # Cap at 1 minute, default 1 second
                 
                 # Try to actually collect spectrum data using the monitoring use case
                 try:
@@ -1170,8 +1173,7 @@ class SpectrumAlertWebApp:
                     feature_extractor = FeatureExtractor(lite_mode=True)
                     monitoring_use_case = SpectrumMonitoringUseCase(sdr, storage, feature_extractor)
                     
-                    # Capture spectrum data - allow up to 30 minutes for proper data collection
-                    duration_seconds = min(collection_config.get("duration_minutes", 30) * 60, 30 * 60)  # Cap at 30 minutes
+                    # Set up data collection variables
                     spectrum_data = None
                     
                     # Log frequency information
