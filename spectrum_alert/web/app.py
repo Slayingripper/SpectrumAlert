@@ -175,16 +175,17 @@ class SpectrumAlertWebApp:
                 return {"status": "error", "message": str(e)}
         
         @self.app.get("/api/spectrum/analysis")
-        async def get_spectrum_analysis():
-            """Get spectrum analysis data"""
+        async def get_spectrum_analysis(frequency_range: str = "144-146"):
+            """Get spectrum analysis data with optional frequency range filter"""
             try:
                 # Get recent spectrum data for analysis
-                analysis = await self._get_spectrum_analysis()
+                analysis = await self._get_spectrum_analysis(frequency_range)
                 return {
                     "status": "ok",
                     "analysis": analysis,
                     "data": analysis,  # Keep both for compatibility
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "frequency_range": frequency_range
                 }
             except Exception as e:
                 logger.error(f"Error getting spectrum analysis: {e}")
@@ -1791,13 +1792,28 @@ class SpectrumAlertWebApp:
                     }
                 }
     
-    async def _get_spectrum_analysis(self) -> Dict[str, Any]:
+    async def _get_spectrum_analysis(self, frequency_range: str = "144-146") -> Dict[str, Any]:
         """Get spectrum analysis data from real RTL-SDR captures"""
+        # Set default center frequency
+        center_freq_hz = 145e6  # Default to VHF amateur band
+        
         try:
             import numpy as np
             from pathlib import Path
             from scipy import signal
             import os
+            
+            # Parse frequency range for filtering
+            try:
+                start_freq, end_freq = map(float, frequency_range.split("-"))
+                start_freq_hz = start_freq * 1e6  # Convert to Hz
+                end_freq_hz = end_freq * 1e6
+                center_freq_hz = (start_freq_hz + end_freq_hz) / 2
+            except:
+                # Default to VHF amateur band if parsing fails
+                start_freq_hz = 144e6
+                end_freq_hz = 146e6
+                center_freq_hz = 145e6
             
             # Get real spectrum data files using absolute path
             base_dir = Path(__file__).parent.parent.parent  # Go up to SpectrumAlert root
@@ -1809,7 +1825,7 @@ class SpectrumAlertWebApp:
                     "peak_frequencies": [],
                     "signal_strength": -80.0,
                     "bandwidth": 0.0,
-                    "center_frequency": 433000000.0,
+                    "center_frequency": center_freq_hz,
                     "total_samples": 0,
                     "error": "No spectrum data directory found"
                 }
@@ -1920,7 +1936,7 @@ class SpectrumAlertWebApp:
                 "peak_frequencies": [],
                 "signal_strength": -80.0,
                 "bandwidth": 0.0,
-                "center_frequency": 433000000.0,
+                "center_frequency": center_freq_hz,
                 "total_samples": 0,
                 "error": str(e)
             }

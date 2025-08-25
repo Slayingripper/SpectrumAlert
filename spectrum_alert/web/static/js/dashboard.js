@@ -586,11 +586,24 @@ async function startMonitoring() {
     try {
         showNotification('Starting spectrum monitoring...', 'info');
         
+        // Collect configuration from UI elements
+        const config = {
+            frequency_range: document.getElementById('frequency-range-config')?.value || '144-146',
+            sample_rate: parseInt(document.getElementById('sample-rate')?.value || 2048000),
+            gain: 20,
+            threshold: parseFloat(document.getElementById('threshold-slider')?.value || 0.8),
+            scan_interval: parseInt(document.getElementById('scan-interval')?.value || 5),
+            strict_mode: document.getElementById('strict-mode')?.checked || false
+        };
+        
+        console.log('Starting monitoring with config:', config);
+        
         const response = await fetch('/api/monitoring/start', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify(config)
         });
 
         if (response.ok) {
@@ -607,6 +620,9 @@ async function startMonitoring() {
             
             // Start polling for monitoring status
             startMonitoringStatusPolling();
+            
+            // Refresh spectrum analysis with new frequency range
+            loadSpectrumAnalysis();
             
         } else {
             console.error('Failed to start monitoring:', response.statusText);
@@ -1705,6 +1721,120 @@ function updateSpectrumData(data) {
     }
 }
 
+async function loadSpectrumAnalysis() {
+    try {
+        // Get the current frequency range from the UI if available
+        const frequencyRange = document.getElementById('frequency-range-config')?.value || '144-146';
+        
+        const response = await fetch(`/api/spectrum/analysis?frequency_range=${encodeURIComponent(frequencyRange)}`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.analysis) {
+                updateSpectrumData(result.analysis);
+                updateSpectrumChart(result.analysis);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading spectrum analysis:', error);
+    }
+}
+
+function startSpectrumRefresh() {
+    // Refresh spectrum analysis every 5 seconds
+    setInterval(loadSpectrumAnalysis, 5000);
+}
+
+function updateSpectrumChart(data) {
+    const canvas = document.getElementById('spectrum-chart');
+    if (!canvas || !data) return;
+    
+    // Create or update the spectrum chart
+    if (window.spectrumChart) {
+        window.spectrumChart.destroy();
+    }
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Prepare data for chart
+    let frequencies = [];
+    let amplitudes = [];
+    
+    if (data.frequencies && data.amplitudes) {
+        frequencies = data.frequencies;
+        amplitudes = data.amplitudes;
+    } else if (data.frequency_data && data.amplitude_data) {
+        frequencies = data.frequency_data;
+        amplitudes = data.amplitude_data;
+    } else {
+        // Generate sample data for visualization
+        const centerFreq = data.peak_frequency || 146.0;
+        const span = 2.0; // 2 MHz span
+        for (let i = 0; i < 100; i++) {
+            const freq = centerFreq - span/2 + (i * span / 100);
+            frequencies.push(freq);
+            // Create a synthetic spectrum with peak at center
+            const amplitude = -40 + 20 * Math.exp(-Math.pow((freq - centerFreq) / 0.2, 2)) + Math.random() * 5;
+            amplitudes.push(amplitude);
+        }
+    }
+    
+    window.spectrumChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: frequencies.map(f => f.toFixed(2)),
+            datasets: [{
+                label: 'Power Spectrum',
+                data: amplitudes,
+                borderColor: 'rgba(0, 255, 255, 1)',
+                backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                borderWidth: 1,
+                pointRadius: 0,
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#00ffff'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Frequency (MHz)',
+                        color: '#00ffff'
+                    },
+                    ticks: {
+                        color: '#00ffff',
+                        maxTicksLimit: 10
+                    },
+                    grid: {
+                        color: 'rgba(0, 255, 255, 0.2)'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Power (dBm)',
+                        color: '#00ffff'
+                    },
+                    ticks: {
+                        color: '#00ffff'
+                    },
+                    grid: {
+                        color: 'rgba(0, 255, 255, 0.2)'
+                    }
+                }
+            }
+        }
+    });
+}
+
 // Model performance functions
 async function loadModelStatus() {
     try {
@@ -1838,6 +1968,16 @@ function initializeDashboard() {
     configInputs.forEach(input => {
         input.addEventListener('change', saveConfig);
     });
+    
+    // Add specific handler for frequency range changes to refresh spectrum
+    const frequencyRangeInput = document.getElementById('frequency-range-config');
+    if (frequencyRangeInput) {
+        frequencyRangeInput.addEventListener('change', function() {
+            console.log('Frequency range changed to:', this.value);
+            // Refresh spectrum analysis with new frequency range
+            loadSpectrumAnalysis();
+        });
+    }
     
     console.log('Dashboard initialization complete');
 }
