@@ -114,6 +114,85 @@ class SystemMonitor:
                 "metrics": {},
                 "health_checks": {}
             }
+
+    def get_advanced_status(self) -> Dict[str, Any]:
+        """Get advanced system status with additional details"""
+        try:
+            basic_status = self.get_system_status()
+            metrics = basic_status.get("metrics", {})
+            
+            # Add advanced metrics
+            advanced_status = basic_status.copy()
+            
+            # Add CPU usage as top-level field for compatibility
+            if "cpu" in metrics:
+                advanced_status["cpu_usage"] = metrics["cpu"]["percent"]
+                
+            # Add memory usage as top-level field
+            if "memory" in metrics:
+                advanced_status["memory_usage"] = metrics["memory"]["percent"]
+                
+            # Add disk usage as top-level field  
+            if "disk" in metrics:
+                advanced_status["disk_usage"] = metrics["disk"]["percent"]
+                
+            # Add temperature (mock value since we don't have sensors)
+            advanced_status["temperature"] = 45.0  # Mock temperature
+            
+            # Add uptime string
+            advanced_status["uptime"] = self.get_uptime_string()
+            
+            # Add network interfaces
+            try:
+                import socket
+                import psutil
+                interfaces = []
+                for interface_name, addresses in psutil.net_if_addrs().items():
+                    if interface_name != 'lo':  # Skip loopback
+                        ipv4_addresses = [addr.address for addr in addresses if addr.family == socket.AF_INET]
+                        if ipv4_addresses:
+                            interfaces.append({
+                                "name": interface_name,
+                                "addresses": ipv4_addresses
+                            })
+                advanced_status["network"] = {"interfaces": interfaces}
+            except Exception as e:
+                logger.debug(f"Error getting network interfaces: {e}")
+                advanced_status["network"] = {"interfaces": []}
+            
+            # Add hardware info
+            advanced_status["hardware"] = {
+                "sdr_devices": ["RTL-SDR #0"],  # Mock SDR info
+                "sdr_status": "Available"
+            }
+            
+            # Add monitoring info
+            advanced_status["monitoring"] = {
+                "active": False,
+                "multiband_active": False,
+                "advanced_active": False,
+                "config": {}
+            }
+            
+            # Add MQTT info
+            advanced_status["mqtt"] = {
+                "connected": False,
+                "config": {}
+            }
+            
+            return advanced_status
+            
+        except Exception as e:
+            logger.error(f"Error getting advanced status: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "cpu_usage": 0,
+                "memory_usage": 0,
+                "disk_usage": 0,
+                "temperature": 0,
+                "uptime": "Unknown"
+            }
     
     def get_process_metrics(self, pid: Optional[int] = None) -> Dict[str, Any]:
         """Get metrics for a specific process (current process if pid not specified)"""

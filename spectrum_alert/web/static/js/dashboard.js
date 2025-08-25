@@ -13,18 +13,64 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeWebSocket();
     loadDataStats();
     loadTrainingStatus();
+    loadModelStatus();
+    loadAnalytics();
     loadSystemStatus();
     loadMQTTStatus();
+    loadRecentAnomalies();
     startDataStatsRefresh();
     startSystemStatsRefresh();
+    startModelStatusRefresh();
+    startAnalyticsRefresh();
     updateTimestamp();
     setInterval(updateTimestamp, 1000);
 });
 
 // WebSocket connection management
+let websocket = null;
+
 function initializeWebSocket() {
     console.log('Initializing WebSocket connection...');
-    // WebSocket initialization is handled in websocket.js
+    
+    try {
+        // Create WebSocket connection
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        
+        websocket = new WebSocket(wsUrl);
+        
+        websocket.onopen = function(event) {
+            console.log('WebSocket connected successfully');
+            showNotification('Real-time connection established', 'success');
+        };
+        
+        websocket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error);
+            }
+        };
+        
+        websocket.onclose = function(event) {
+            console.log('WebSocket connection closed');
+            showNotification('Real-time connection lost', 'warning');
+            
+            // Attempt to reconnect after 5 seconds
+            setTimeout(initializeWebSocket, 5000);
+        };
+        
+        websocket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            showNotification('Real-time connection error', 'error');
+        };
+        
+    } catch (error) {
+        console.error('Failed to initialize WebSocket:', error);
+        // Fallback to polling if WebSocket fails
+        setTimeout(initializeWebSocket, 10000);
+    }
 }
 
 // System Status Functions
@@ -110,6 +156,80 @@ function updateElementText(id, text) {
 
 function startSystemStatsRefresh() {
     systemStatsInterval = setInterval(loadSystemStatus, 5000); // Every 5 seconds
+}
+
+// Recent Anomalies Functions
+async function loadRecentAnomalies() {
+    try {
+        const response = await fetch('/api/anomalies/recent');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.anomalies) {
+                updateRecentAnomalies(result.anomalies);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading recent anomalies:', error);
+    }
+}
+
+function updateRecentAnomalies(anomalies) {
+    const anomaliesList = document.getElementById('recent-anomalies-list');
+    if (!anomaliesList) return;
+    
+    // Clear existing anomalies
+    anomaliesList.innerHTML = '';
+    
+    if (anomalies.length === 0) {
+        anomaliesList.innerHTML = '<div class="no-anomalies">No recent anomalies detected</div>';
+        return;
+    }
+    
+    // Display the most recent anomalies
+    anomalies.slice(0, 10).forEach(anomaly => {
+        const anomalyElement = document.createElement('div');
+        anomalyElement.className = `anomaly-item severity-${anomaly.severity || 'medium'}`;
+        
+        const timestamp = new Date(anomaly.timestamp).toLocaleString();
+        const frequency = (anomaly.frequency_hz / 1e6).toFixed(3);
+        const confidence = (anomaly.confidence_score * 100).toFixed(1);
+        
+        anomalyElement.innerHTML = `
+            <div class="anomaly-header">
+                <span class="anomaly-time">${timestamp}</span>
+                <span class="anomaly-severity">${(anomaly.severity || 'medium').toUpperCase()}</span>
+            </div>
+            <div class="anomaly-details">
+                <div class="anomaly-frequency">${frequency} MHz</div>
+                <div class="anomaly-confidence">Confidence: ${confidence}%</div>
+                <div class="anomaly-description">${anomaly.description || 'Anomaly detected'}</div>
+            </div>
+        `;
+        
+        anomaliesList.appendChild(anomalyElement);
+    });
+}
+
+// Monitoring Status Functions
+async function loadMonitoringStatus() {
+    try {
+        const response = await fetch('/api/monitoring/status');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'ok' && result.data) {
+                updateMonitoringStatus(result.data);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading monitoring status:', error);
+    }
+}
+
+function updateMonitoringStatus(status) {
+    // Update monitoring status indicators
+    const monitoringActive = status.monitoring_active || false;
+    updateStatusIndicator('monitoring-status', monitoringActive);
+    updateElementText('monitoring-state', monitoringActive ? 'ACTIVE' : 'STOPPED');
 }
 
 // Advanced Monitoring Functions
@@ -477,8 +597,8 @@ async function stopMonitoring() {
 }
 
 function updateMonitoringUI(isMonitoring) {
-    const startBtn = document.getElementById('startMonitoring');
-    const stopBtn = document.getElementById('stopMonitoring');
+    const startBtn = document.getElementById('start-monitoring');
+    const stopBtn = document.getElementById('stop-monitoring');
     
     if (startBtn && stopBtn) {
         startBtn.style.display = isMonitoring ? 'none' : 'inline-block';
@@ -734,6 +854,7 @@ function startDataStatsRefresh() {
 async function collectData() {
     try {
         console.log('Starting data collection...');
+        showNotification('Starting data collection...', 'info');
         
         const response = await fetch('/api/data/collect', {
             method: 'POST',
@@ -744,19 +865,35 @@ async function collectData() {
 
         if (response.ok) {
             const result = await response.json();
-            console.log('Data collection started:', result);
-            alert('Data collection started successfully!');
+            console.log('Data collection result:', result);
             
-            // Refresh stats after a short delay
-            setTimeout(loadDataStats, 2000);
+            if (result.status === 'success') {
+                showNotification(`Data collection completed: ${result.message}`, 'success');
+                
+                // Show collection details if available
+                if (result.data) {
+                    const details = `
+                        Frequency: ${(result.data.frequency_hz / 1e6).toFixed(2)} MHz
+                        Duration: ${result.data.duration_seconds}s
+                        Samples: ${result.data.sample_count}
+                        Timestamp: ${new Date(result.data.timestamp).toLocaleString()}
+                    `;
+                    console.log('Collection details:', details);
+                }
+                
+                // Refresh stats after a short delay
+                setTimeout(loadDataStats, 2000);
+            } else {
+                showNotification(`Data collection failed: ${result.message}`, 'error');
+            }
         } else {
             const error = await response.text();
             console.error('Failed to start data collection:', error);
-            alert('Failed to start data collection: ' + error);
+            showNotification('Failed to start data collection: ' + error, 'error');
         }
     } catch (error) {
         console.error('Error starting data collection:', error);
-        alert('Error starting data collection. Check console for details.');
+        showNotification('Error starting data collection. Check console for details.', 'error');
     }
 }
 
@@ -864,19 +1001,113 @@ function updateSpectrumData(data) {
 }
 
 // Model performance functions
+async function loadModelStatus() {
+    try {
+        const response = await fetch('/api/model/status');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'success' && result.data) {
+                updateModelInfo(result.data);
+                updateModelPerformanceChart(result.data.performance_metrics || {});
+            }
+        }
+    } catch (error) {
+        console.error('Error loading model status:', error);
+    }
+}
+
+function startModelStatusRefresh() {
+    setInterval(loadModelStatus, 30000); // Refresh every 30 seconds
+}
+
 function updateModelInfo(info) {
-    if (info.accuracy) {
+    if (info.accuracy !== undefined) {
         updateElementText('model-accuracy', (info.accuracy * 100).toFixed(1) + '%');
     }
-    if (info.confidence) {
+    if (info.confidence !== undefined) {
         updateElementText('model-confidence', (info.confidence * 100).toFixed(1) + '%');
     }
     if (info.last_trained) {
-        updateElementText('last-trained', new Date(info.last_trained).toLocaleDateString());
+        const date = new Date(info.last_trained);
+        updateElementText('last-trained', date.toLocaleDateString() + ' ' + date.toLocaleTimeString());
     }
-    if (info.sample_count) {
+    if (info.sample_count !== undefined) {
         updateElementText('sample-count', info.sample_count.toLocaleString());
     }
+    
+    // Update model type and deployment status
+    if (info.model_type) {
+        updateElementText('model-type', info.model_type);
+    }
+    if (info.is_deployed !== undefined) {
+        const deployStatus = info.is_deployed ? 'DEPLOYED' : 'NOT DEPLOYED';
+        updateElementText('deployment-status', deployStatus);
+    }
+}
+
+function updateModelPerformanceChart(metrics) {
+    const canvas = document.getElementById('model-performance-chart');
+    if (!canvas || !metrics) return;
+    
+    // Create or update the performance chart
+    if (window.modelChart) {
+        window.modelChart.destroy();
+    }
+    
+    const ctx = canvas.getContext('2d');
+    window.modelChart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: ['Precision', 'Recall', 'F1-Score', 'AUC', 'Accuracy'],
+            datasets: [{
+                label: 'Model Performance',
+                data: [
+                    (metrics.precision || 0) * 100,
+                    (metrics.recall || 0) * 100,
+                    (metrics.f1_score || 0) * 100,
+                    (metrics.auc_score || 0) * 100,
+                    (metrics.accuracy || 0) * 100
+                ],
+                backgroundColor: 'rgba(0, 255, 255, 0.2)',
+                borderColor: 'rgba(0, 255, 255, 1)',
+                borderWidth: 2,
+                pointBackgroundColor: 'rgba(0, 255, 255, 1)',
+                pointBorderColor: '#fff',
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: 'rgba(0, 255, 255, 1)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#00ffff'
+                    }
+                }
+            },
+            scales: {
+                r: {
+                    angleLines: {
+                        color: 'rgba(0, 255, 255, 0.3)'
+                    },
+                    grid: {
+                        color: 'rgba(0, 255, 255, 0.3)'
+                    },
+                    pointLabels: {
+                        color: '#00ffff'
+                    },
+                    ticks: {
+                        color: '#00ffff',
+                        backdropColor: 'transparent'
+                    },
+                    min: 0,
+                    max: 100
+                }
+            }
+        }
+    });
 }
 
 // Initialize dashboard features
@@ -933,6 +1164,57 @@ function showTab(tabId) {
     });
 }
 
+// WebSocket Message Handler
+function handleWebSocketMessage(data) {
+    console.log('Received WebSocket message:', data);
+    
+    switch (data.type) {
+        case 'anomaly_detected':
+            updateAnomalyCount();
+            loadRecentAnomalies();
+            showNotification(`Anomaly detected: ${data.description || 'Unknown'}`, 'warning');
+            break;
+            
+        case 'system_status':
+            updateSystemStatus(data.data);
+            break;
+            
+        case 'monitoring_update':
+            loadMonitoringStatus();
+            break;
+            
+        case 'training_complete':
+            showNotification('Model training completed successfully', 'success');
+            break;
+            
+        case 'training_failed':
+            showNotification('Model training failed', 'error');
+            break;
+            
+        default:
+            console.log('Unknown WebSocket message type:', data.type);
+    }
+}
+
+// Notification System
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    // Add to page
+    const container = document.getElementById('notifications') || document.body;
+    container.appendChild(notification);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
+    }, 5000);
+}
+
 // Cleanup on page unload
 window.addEventListener('beforeunload', function() {
     if (dataStatsInterval) {
@@ -941,4 +1223,174 @@ window.addEventListener('beforeunload', function() {
     if (systemStatsInterval) {
         clearInterval(systemStatsInterval);
     }
+    if (websocket) {
+        websocket.close();
+    }
 });
+
+// Real-time Analytics Functions
+async function loadAnalytics() {
+    try {
+        const timeframe = document.getElementById('analytics-timeframe')?.value || '24h';
+        const response = await fetch(`/api/analytics/realtime?timeframe=${timeframe}`);
+        if (response.ok) {
+            const result = await response.json();
+            if (result.status === 'success' && result.data) {
+                updateAnalyticsMetrics(result.data);
+                updateAnalyticsCharts(result.data);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading analytics:', error);
+    }
+}
+
+function startAnalyticsRefresh() {
+    setInterval(loadAnalytics, 15000); // Refresh every 15 seconds for real-time feel
+}
+
+function refreshAnalytics() {
+    loadAnalytics();
+}
+
+function updateAnalyticsMetrics(data) {
+    // Update detection metrics
+    if (data.detections !== undefined) {
+        updateElementText('detections-count', data.detections.toLocaleString());
+        const change = data.detections_change || 0;
+        updateChangeIndicator('detections-change', change);
+    }
+    
+    // Update anomaly metrics
+    if (data.anomalies !== undefined) {
+        updateElementText('anomalies-count', data.anomalies.toLocaleString());
+        const change = data.anomalies_change || 0;
+        updateChangeIndicator('anomalies-change', change);
+    }
+    
+    // Update signal metrics
+    if (data.avg_signal !== undefined) {
+        updateElementText('avg-signal', data.avg_signal.toFixed(1) + ' dBm');
+        const change = data.signal_change || 0;
+        updateChangeIndicator('signal-change', change);
+    }
+    
+    // Update accuracy metrics
+    if (data.realtime_accuracy !== undefined) {
+        updateElementText('realtime-accuracy', (data.realtime_accuracy * 100).toFixed(1) + '%');
+        const change = data.accuracy_change || 0;
+        updateChangeIndicator('accuracy-change', change);
+    }
+}
+
+function updateChangeIndicator(elementId, change) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    
+    const absChange = Math.abs(change);
+    const sign = change >= 0 ? '+' : '-';
+    const color = change >= 0 ? '#00ff00' : '#ff0044';
+    const icon = change >= 0 ? '↑' : '↓';
+    
+    element.textContent = `${icon} ${sign}${absChange.toFixed(1)}%`;
+    element.style.color = color;
+}
+
+function updateAnalyticsCharts(data) {
+    updateDetectionsTimelineChart(data.timeline || []);
+    updateFrequencyDistributionChart(data.frequency_distribution || []);
+}
+
+function updateDetectionsTimelineChart(timelineData) {
+    const canvas = document.getElementById('detections-timeline-chart');
+    if (!canvas) return;
+    
+    if (window.detectionsChart) {
+        window.detectionsChart.destroy();
+    }
+    
+    const ctx = canvas.getContext('2d');
+    window.detectionsChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timelineData.map(d => new Date(d.timestamp).toLocaleTimeString()),
+            datasets: [{
+                label: 'Detections',
+                data: timelineData.map(d => d.detections),
+                borderColor: 'rgba(0, 255, 255, 1)',
+                backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                borderWidth: 2,
+                fill: true
+            }, {
+                label: 'Anomalies',
+                data: timelineData.map(d => d.anomalies),
+                borderColor: 'rgba(255, 0, 68, 1)',
+                backgroundColor: 'rgba(255, 0, 68, 0.1)',
+                borderWidth: 2,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#00ffff' }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#00ffff' },
+                    grid: { color: 'rgba(0, 255, 255, 0.3)' }
+                },
+                y: {
+                    ticks: { color: '#00ffff' },
+                    grid: { color: 'rgba(0, 255, 255, 0.3)' }
+                }
+            }
+        }
+    });
+}
+
+function updateFrequencyDistributionChart(frequencyData) {
+    const canvas = document.getElementById('frequency-distribution-chart');
+    if (!canvas) return;
+    
+    if (window.frequencyChart) {
+        window.frequencyChart.destroy();
+    }
+    
+    const ctx = canvas.getContext('2d');
+    window.frequencyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: frequencyData.map(d => `${(d.frequency / 1e6).toFixed(1)} MHz`),
+            datasets: [{
+                label: 'Signal Strength',
+                data: frequencyData.map(d => d.power),
+                backgroundColor: 'rgba(0, 255, 255, 0.6)',
+                borderColor: 'rgba(0, 255, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#00ffff' }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#00ffff' },
+                    grid: { color: 'rgba(0, 255, 255, 0.3)' }
+                },
+                y: {
+                    ticks: { color: '#00ffff' },
+                    grid: { color: 'rgba(0, 255, 255, 0.3)' }
+                }
+            }
+        }
+    });
+}

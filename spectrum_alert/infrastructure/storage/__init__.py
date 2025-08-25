@@ -151,9 +151,6 @@ class DataStorage:
         except Exception as e:
             logger.error(f"Error getting anomalies since {since}: {e}")
             return []
-        except Exception as e:
-            logger.error(f"Error saving anomaly: {e}")
-            raise StorageError(f"Failed to save anomaly: {e}")
     
     def save_features(self, features: FeatureVector) -> str:
         """Save feature vector"""
@@ -259,6 +256,54 @@ class DataStorage:
         except Exception as e:
             logger.error(f"Error getting anomaly count: {e}")
             return 0
+
+    def get_recent_anomalies(self, limit: int = 10) -> List[AnomalyDetection]:
+        """Get recent anomalies (most recent first)"""
+        try:
+            # Use the existing get_anomalies_since method
+            since = datetime.now() - timedelta(days=7)  # Look back 7 days
+            all_anomalies = self.get_anomalies_since(since)
+            
+            # Return the most recent ones, up to the limit
+            return all_anomalies[:limit]
+        except Exception as e:
+            logger.error(f"Error getting recent anomalies: {e}")
+            return []
+
+    def get_anomaly_stats(self) -> Dict[str, Any]:
+        """Get anomaly statistics"""
+        try:
+            # Get all anomalies from last 30 days
+            since = datetime.now() - timedelta(days=30)
+            all_anomalies = self.get_anomalies_since(since)
+            
+            # Get last 24h anomalies
+            last_24h_cutoff = datetime.now() - timedelta(hours=24)
+            last_24h_anomalies = [a for a in all_anomalies if a.timestamp >= last_24h_cutoff]
+            
+            # Breakdown by severity
+            severity_breakdown = {"high": 0, "medium": 0, "low": 0, "unknown": 0}
+            for anomaly in all_anomalies:
+                severity = anomaly.severity.lower() if anomaly.severity else "unknown"
+                if severity in severity_breakdown:
+                    severity_breakdown[severity] += 1
+                else:
+                    severity_breakdown["unknown"] += 1
+            
+            return {
+                "total_anomalies": len(all_anomalies),
+                "last_24h": len(last_24h_anomalies),
+                "severity_breakdown": severity_breakdown,
+                "last_updated": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error getting anomaly stats: {e}")
+            return {
+                "total_anomalies": 0,
+                "last_24h": 0,
+                "severity_breakdown": {"high": 0, "medium": 0, "low": 0, "unknown": 0},
+                "last_updated": datetime.now().isoformat()
+            }
 
     def cleanup_old_data(self, max_age_days: int = 7) -> Dict[str, int]:
         """Remove data files older than specified days across all data folders.

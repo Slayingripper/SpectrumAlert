@@ -200,6 +200,14 @@
                             <div class="stat-label">SAMPLES</div>
                             <div class="stat-value" id="sample-count">--</div>
                         </div>
+                        <div class="model-stat">
+                            <div class="stat-label">MODEL TYPE</div>
+                            <div class="stat-value" id="model-type">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">STATUS</div>
+                            <div class="stat-value" id="deployment-status">--</div>
+                        </div>
                     </div>
                     <div class="model-chart-container">
                         <canvas id="model-performance-chart"></canvas>
@@ -439,6 +447,69 @@
                                 <span class="result-label">Samples:</span>
                                 <span class="result-value" id="result-samples">--</span>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real-time Analytics -->
+            <section class="panel analytics-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-chart-line"></i> REAL-TIME ANALYTICS</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshAnalytics()">
+                            <i class="fas fa-sync-alt"></i>
+                            REFRESH
+                        </button>
+                        <select class="control-select" id="analytics-timeframe">
+                            <option value="1h">Last Hour</option>
+                            <option value="24h" selected>Last 24 Hours</option>
+                            <option value="7d">Last 7 Days</option>
+                            <option value="30d">Last 30 Days</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="analytics-grid">
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-eye"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Detections</div>
+                                <div class="metric-value" id="detections-count">--</div>
+                                <div class="metric-change" id="detections-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Anomalies</div>
+                                <div class="metric-value" id="anomalies-count">--</div>
+                                <div class="metric-change" id="anomalies-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-signal"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Avg Signal</div>
+                                <div class="metric-value" id="avg-signal">--</div>
+                                <div class="metric-change" id="signal-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-crosshairs"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Accuracy</div>
+                                <div class="metric-value" id="realtime-accuracy">--</div>
+                                <div class="metric-change" id="accuracy-change">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="analytics-charts">
+                        <div class="chart-container">
+                            <canvas id="detections-timeline-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="frequency-distribution-chart"></canvas>
                         </div>
                     </div>
                 </div>

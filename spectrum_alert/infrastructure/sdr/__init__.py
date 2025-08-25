@@ -136,6 +136,8 @@ class RTLSDRInterface(SDRInterface):
                 logger.info("RTL-SDR device closed")
             except Exception as e:
                 logger.error(f"Error closing RTL-SDR: {e}")
+            finally:
+                self.sdr = None
     
     def read_samples(self, num_samples: int) -> np.ndarray:
         """Read IQ samples from RTL-SDR"""
