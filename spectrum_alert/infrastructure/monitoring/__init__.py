@@ -19,6 +19,33 @@ class SystemMonitor:
         self.start_time = time.time()
         self._last_update = time.time()
         self._metrics_history = []
+
+    @staticmethod
+    def _read_temperature_c() -> Optional[float]:
+        """First available hardware temperature in °C, or None.
+
+        psutil exposes sensors only where the platform provides them; on VMs
+        and containers the answer is legitimately "no sensor", and None lets
+        the UI say so instead of showing a made-up number.
+        """
+        try:
+            sensors = psutil.sensors_temperatures()
+        except (AttributeError, OSError):
+            return None
+        if not sensors:
+            return None
+        # Prefer CPU-ish sensors over acpis/battery entries.
+        preferred = ("coretemp", "k10temp", "cpu_thermal", "zenpower", "soc_thermal")
+        names = [n for n in preferred if n in sensors] + [
+            n for n in sensors if n not in preferred
+        ]
+        for name in names:
+            entries = sensors.get(name) or []
+            for entry in entries:
+                current = getattr(entry, "current", None)
+                if current is not None and -40.0 < current < 150.0:
+                    return float(current)
+        return None
     
     def get_system_metrics(self) -> Dict[str, Any]:
         """Get current system metrics"""
@@ -100,6 +127,16 @@ class SystemMonitor:
             return {
                 "status": status,
                 "metrics": metrics,
+                # Flat aliases alongside the nested form. Consumers had to
+                # probe the shape ("if cpu_usage in status") to find out which
+                # layout they were getting, and get_advanced_status already
+                # emitted these keys, so callers saw two different shapes from
+                # two methods on the same class.
+                "cpu_usage": metrics["cpu"]["percent"],
+                "memory_usage": metrics["memory"]["percent"],
+                "disk_usage": metrics["disk"]["percent"],
+                "uptime": self.get_uptime_string(),
+                "temperature": self._read_temperature_c(),
                 "health_checks": {
                     "cpu": "ok" if cpu_ok else "warning",
                     "memory": "ok" if memory_ok else "warning", 
@@ -136,8 +173,10 @@ class SystemMonitor:
             if "disk" in metrics:
                 advanced_status["disk_usage"] = metrics["disk"]["percent"]
                 
-            # Add temperature (mock value since we don't have sensors)
-            advanced_status["temperature"] = 45.0  # Mock temperature
+            # Real temperature from hardware sensors. None when the platform
+            # has none: a fabricated 45 °C was previously reported on fanless
+            # VMs, which is exactly the kind of lie this field exists to avoid.
+            advanced_status["temperature"] = self._read_temperature_c()
             
             # Add uptime string
             advanced_status["uptime"] = self.get_uptime_string()
@@ -160,11 +199,23 @@ class SystemMonitor:
                 logger.debug(f"Error getting network interfaces: {e}")
                 advanced_status["network"] = {"interfaces": []}
             
-            # Add hardware info
-            advanced_status["hardware"] = {
-                "sdr_devices": ["RTL-SDR #0"],  # Mock SDR info
-                "sdr_status": "Available"
-            }
+            # Real hardware probe; an invented "RTL-SDR #0" was previously
+            # reported here even on machines with no dongle attached.
+            try:
+                from spectrum_alert.infrastructure.sdr.scanner import probe_local_sdr
+                probe = probe_local_sdr()
+                advanced_status["hardware"] = {
+                    "sdr_devices": probe["devices"],
+                    "sdr_status": probe["detail"],
+                    "sdr_available": probe["available"],
+                }
+            except Exception as e:
+                logger.debug(f"SDR probe failed: {e}")
+                advanced_status["hardware"] = {
+                    "sdr_devices": [],
+                    "sdr_status": f"Probe failed: {e}",
+                    "sdr_available": False,
+                }
             
             # Add monitoring info
             advanced_status["monitoring"] = {

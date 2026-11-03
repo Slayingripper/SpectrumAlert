@@ -30,7 +30,8 @@ classifiers = [
 dependencies = [
     "numpy>=1.21.0",
     "scikit-learn>=1.0.0",
-    "pyrtlsdr>=0.2.9",
+    # 0.4.0+ binds rtlsdr_set_dithering, which Ubuntu's librtlsdr lacks.
+    "pyrtlsdr>=0.2.9,<0.4",
     "paho-mqtt>=1.5.1",
     "joblib>=1.0.0",
     "matplotlib>=3.3.0",
@@ -45,7 +46,11 @@ dependencies = [
     "dependency-injector>=4.41.0",
     "psutil>=5.8.0",
     "fastapi>=0.104.0",
-    "uvicorn>=0.24.0",
+    # [standard] pulls in `websockets`. Without it uvicorn serves HTTP but
+    # refuses to upgrade /ws ("No supported WebSocket library detected"), so
+    # the dashboard never receives a spectrum_update, the live chart stays
+    # blank and the connection indicator reconnected forever.
+    "uvicorn[standard]>=0.24.0",
     "jinja2>=3.1.0",
     "python-multipart>=0.0.6",
 ]
@@ -85,6 +90,19 @@ Repository = "https://github.com/yourusername/spectrum-alert.git"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["spectrum_alert*"]
+
+# The dashboard is served from files inside the package, not from generated
+# HTML. Without this the wheel shipped spectrum_alert/web/app.py with no
+# templates or static directory next to it, and every non-editable install
+# (including the Docker image, which runs `pip install .`) died on startup
+# with "Directory .../spectrum_alert/web/static does not exist".
+[tool.setuptools.package-data]
+"spectrum_alert.web" = [
+    "templates/*.html",
+    "static/css/*.css",
+    "static/js/*.js",
+    "static/vendor/*/*",
+]
 
 [tool.black]
 line-length = 88

@@ -186,62 +186,13 @@ async function updateSpectrumVisualization() {
                 return;
             }
         }
-        
-        // Fall back to mock data if API not available
-        generateMockSpectrumData();
-        
+
+        // No data: leave the chart as-is. Inventing a spectrum here used to
+        // fill the panel with synthetic peaks whenever the API was quiet.
+        console.warn('No spectrum data available from /api/spectrum/current');
+
     } catch (error) {
         console.error('Error updating spectrum visualization:', error);
-        // Generate mock data if API fails
-        generateMockSpectrumData();
-    }
-}
-
-function generateMockSpectrumData() {
-    if (!spectrumChart) return;
-    
-    const centerFreq = parseFloat(document.getElementById('spectrum-frequency')?.value || 433);
-    const span = 10; // 10 MHz span
-    const points = 100;
-    
-    const frequencies = [];
-    const powers = [];
-    
-    for (let i = 0; i < points; i++) {
-        const freq = centerFreq - span/2 + (span * i / points);
-        frequencies.push(freq.toFixed(2));
-        
-        // Generate realistic spectrum with noise floor and some signals
-        let power = -80 + Math.random() * 10; // Noise floor around -80 dBm
-        
-        // Add some signals at specific frequencies
-        const signals = [centerFreq - 2, centerFreq + 1.5, centerFreq + 3];
-        signals.forEach(sigFreq => {
-            const dist = Math.abs(freq - sigFreq);
-            if (dist < 0.5) {
-                power += 30 * Math.exp(-dist * 10); // Strong signal
-            }
-        });
-        
-        powers.push(power);
-    }
-    
-    // Update chart data
-    spectrumChart.data.labels = frequencies;
-    spectrumChart.data.datasets[0].data = powers;
-    spectrumChart.update('none');
-    
-    // Update statistics
-    const peakPower = Math.max(...powers);
-    const avgPower = powers.reduce((a, b) => a + b, 0) / powers.length;
-    const peakIndex = powers.indexOf(peakPower);
-    const peakFreq = frequencies[peakIndex];
-    
-    if (typeof updateElementContent === 'function') {
-        updateElementContent('spectrum-peak', `${peakPower.toFixed(1)} dBm`);
-        updateElementContent('spectrum-avg', `${avgPower.toFixed(1)} dBm`);
-        updateElementContent('spectrum-freq', `${peakFreq} MHz`);
-        updateElementContent('spectrum-bw', `${span} MHz`);
     }
 }
 

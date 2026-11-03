@@ -7,7 +7,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 from pydantic import BaseModel, Field, validator
 
 
@@ -47,16 +46,21 @@ class SpectrumData(BaseModel):
     samples: List[complex] = Field(..., description="IQ samples")
     power_spectrum: Optional[List[float]] = Field(None, description="Power spectrum")
     duration_seconds: float = Field(..., gt=0, description="Capture duration")
-    
+    sample_rate_actual_hz: Optional[float] = Field(
+        None, description="Sample rate the tuner actually applied"
+    )
+    bandwidth_hz: Optional[float] = Field(None, description="Analog front-end bandwidth")
+    frequency_correction_ppm: Optional[float] = Field(None, description="Crystal error correction")
+
     class Config:
         arbitrary_types_allowed = True
-    
+
     @validator('samples')
     def validate_samples(cls, v):
         if not v:
             raise ValueError("Samples cannot be empty")
         return v
-    
+
     @property
     def sample_count(self) -> int:
         """Number of samples in the data."""
@@ -148,9 +152,13 @@ class MonitoringSession(BaseModel):
     configuration: Dict[str, Any] = Field(default_factory=dict, description="Session config")
     statistics: Dict[str, Any] = Field(default_factory=dict, description="Session stats")
     
-    class Config:
-        use_enum_values = True
-    
+    # NOTE: `use_enum_values = True` used to live here. Under Pydantic v2 it
+    # only coerces fields that were explicitly passed, so a defaulted `status`
+    # kept the enum while a passed `detection_mode` became a bare str. Callers
+    # then did `.value` on a str and raised AttributeError from
+    # get_session_status(). The enums are kept as enums; callers that need a
+    # string use the .value helper on the enum itself.
+
     @validator('frequency_range_hz')
     def validate_frequency_range(cls, v):
         start_freq, end_freq = v

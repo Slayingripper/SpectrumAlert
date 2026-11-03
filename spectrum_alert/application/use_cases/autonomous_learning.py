@@ -9,7 +9,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Callable, List
 from dataclasses import dataclass
-from spectrum_alert.core.domain.models import DetectionMode, MonitoringStatus, SpectrumData
+from spectrum_alert.core.domain.models import DetectionMode, SpectrumData
 from spectrum_alert.infrastructure.sdr import SDRInterface
 from spectrum_alert.infrastructure.storage import DataStorage
 from spectrum_alert.core.services.feature_extraction import FeatureExtractor
@@ -184,6 +184,39 @@ class AutonomousLearningUseCase:
             # Continue to next cycle after brief delay
             time.sleep(30)
     
+    def _build_sweep_plan(self) -> List[float]:
+        """Centre frequencies covering the configured range.
+
+        Overlap is applied deliberately: a naive step of exactly one sample rate
+        leaves edge bins attenuated by the front-end filter, so consecutive
+        captures can disagree about a signal sitting on a boundary.
+        """
+        start = float(self.config.frequency_start)
+        end = float(self.config.frequency_end)
+        rate = float(self.config.sample_rate)
+        if end <= start:
+            return [(start + end) / 2.0]
+
+        half = rate / 2.0
+        usable = end - start - rate
+        if usable <= 0:
+            # Band narrower than one capture: a single centred capture covers it.
+            return [(start + end) / 2.0]
+
+        # 80% of a capture per step gives 20% overlap between captures.
+        step = max(rate * 0.8, 1.0)
+        points = [start + half]
+        while points[-1] + step <= end - half:
+            points.append(points[-1] + step)
+
+        # Pin the final step to the top of the band. Without this the last
+        # capture stops short and leaves up to one span unobserved at the edge.
+        final = end - half
+        if final > points[-1]:
+            points.append(final)
+
+        return points
+
     def _data_collection_phase(self) -> None:
         """Phase 1: Collect baseline spectrum data with enhanced quality"""
         self._log_status(f"📊 Phase 1: Collecting data for {self.config.data_collection_minutes} minutes")
@@ -219,22 +252,34 @@ class AutonomousLearningUseCase:
             
             # Configure SDR for optimal data collection with conservative settings
             center_freq = (self.config.frequency_start + self.config.frequency_end) / 2
-            
+
+            # Sweep the whole band instead of sitting on the midpoint. Previously
+            # only the centre frequency was ever tuned, so a 20 MHz range such as
+            # 88-108 MHz was sampled over 1 MHz and the other 19 MHz were never
+            # observed at all.
+            sweep_points = self._build_sweep_plan()
+
             # Set parameters one by one with error checking
             try:
                 self.sdr.set_sample_rate(self.config.sample_rate)
                 time.sleep(0.1)  # Brief delay between settings
-                
+
                 self.sdr.set_center_freq(center_freq)
                 time.sleep(0.1)
-                
+
                 self.sdr.set_gain(self.config.gain)
                 time.sleep(0.1)
-                
+
             except Exception as config_error:
                 self._log_status(f"⚠️ SDR configuration issue: {config_error}", "warning")
                 # Continue with defaults if configuration fails
-            
+
+            if len(sweep_points) > 1:
+                self._log_status(
+                    f"🔄 Sweeping {len(sweep_points)} steps across "
+                    f"{self.config.frequency_start/1e6:.1f}-{self.config.frequency_end/1e6:.1f} MHz "
+                    f"@ {self.config.sample_rate/1e6:.2f} MSps"
+                )
             self._log_status(f"🔧 SDR configured: {center_freq/1e6:.1f} MHz center, {self.config.sample_rate/1e6:.1f} MSps, {self.config.gain} dB gain")
             
             # Start monitoring session for data collection
@@ -263,26 +308,49 @@ class AutonomousLearningUseCase:
             self._log_status(f"🚀 Starting conservative data collection (batch size: {current_batch_size})...")
             
             # Enhanced data collection loop with proper error handling
+            sweep_index = 0
+            steps_per_frequency = 25  # store one batch per this many reads
+
             while datetime.now() < collection_end and not self._stop_event.is_set():
                 try:
+                    # Advance the sweep. Retuning every batch would spend the
+                    # whole cycle in settle time, so hop once per stored batch.
+                    if data_batches % steps_per_frequency == 0 and len(sweep_points) > 1:
+                        target_freq = sweep_points[sweep_index % len(sweep_points)]
+                        if abs(target_freq - center_freq) > 1.0:
+                            try:
+                                self.sdr.set_center_freq(target_freq)
+                            except Exception as tune_error:
+                                self._log_status(
+                                    f"⚠️ Retune to {target_freq/1e6:.3f} MHz failed: {tune_error}",
+                                    "warning",
+                                )
+                        center_freq = target_freq
+                        sweep_index += 1
+
                     # Read samples from SDR with adaptive batch size
                     samples = self.sdr.read_samples(current_batch_size)
-                    
-                    # Only process every 10th batch to reduce CPU load and create meaningful chunks
-                    if data_batches % 25 == 0:  # Changed from 10 to 25 for even less storage
-                        # Calculate power spectrum from samples (reduce size for storage)
-                        fft_samples = samples[:min(256, len(samples))]  # Reduced from 512 to 256
-                        power_spectrum = np.abs(np.fft.fft(fft_samples)).tolist()
-                        
-                        # Create spectrum data object with reduced sample storage
+
+                    # Store one batch per steps_per_frequency reads, so sweep
+                    # steps and stored batches stay in step.
+                    if data_batches % steps_per_frequency == 0:
+                        # Analyse a window long enough to resolve a tone, and
+                        # keep only a short prefix for the stored file. The old
+                        # 256-sample prefix at 2 MSps is 0.125 ms, far too short
+                        # for the feature set to mean anything.
+                        window = samples[: min(len(samples), 2048)]
+                        power_spectrum = np.abs(np.fft.fftshift(np.fft.fft(window))).tolist()
+                        stored_prefix = window[: min(len(window), 256)]
+
                         spectrum_data = SpectrumData(
                             timestamp=datetime.now(),
                             frequency_hz=center_freq,
                             sample_rate_hz=self.config.sample_rate,
                             gain_db=self.config.gain,
-                            samples=fft_samples.tolist() if hasattr(fft_samples, 'tolist') else list(fft_samples),
+                            samples=stored_prefix.tolist() if hasattr(stored_prefix, 'tolist') else list(stored_prefix),
                             power_spectrum=power_spectrum,
-                            duration_seconds=current_batch_size / self.config.sample_rate
+                            duration_seconds=current_batch_size / self.config.sample_rate,
+                            sample_rate_actual_hz=float(getattr(self.sdr, "sample_rate", 0) or self.config.sample_rate),
                         )
                         
                         # Store the data using correct method and extract features
@@ -386,7 +454,7 @@ class AutonomousLearningUseCase:
             
             # Enhanced statistics with USB error information
             if samples_collected > 0:
-                self._log_status(f"✅ Data collection completed!")
+                self._log_status("✅ Data collection completed!")
                 self._log_status(f"   • Duration: {actual_duration:.1f} minutes")
                 self._log_status(f"   • Samples collected: {samples_collected:,}")
                 self._log_status(f"   • Samples stored: {stored_batches * 256:,}")  # 256 samples per stored batch
@@ -396,7 +464,7 @@ class AutonomousLearningUseCase:
                 self._log_status(f"   • USB errors: {usb_error_count}")
                 self._log_status(f"   • Final batch size: {current_batch_size}")
             else:
-                self._log_status(f"⚠️ Data collection completed with no samples", "warning")
+                self._log_status("⚠️ Data collection completed with no samples", "warning")
                 self._log_status(f"   • Duration: {actual_duration:.1f} minutes")
                 self._log_status(f"   • USB errors: {usb_error_count}")
                 if usb_error_count >= max_usb_errors:
@@ -416,10 +484,16 @@ class AutonomousLearningUseCase:
         self._log_status("🧠 Phase 2: Training models with collected data")
         
         try:
-            # Optional: clean up old data before training to keep disk in check
+            # Optional: clean up old data before training to keep disk in check.
+            # cleanup_old_data takes days_to_keep (not max_age_days) and returns
+            # a summary dict; the old keyword raised TypeError, which the bare
+            # except below swallowed, so cleanup never actually ran.
             try:
-                removed = self.storage.cleanup_old_data(max_age_days=self.config.retention_days)
-                self._log_status(f"🧹 Cleaned old data: {removed}")
+                summary = self.storage.cleanup_old_data(days_to_keep=self.config.retention_days)
+                self._log_status(
+                    f"🧹 Cleanup: removed {summary.get('removed', 0)} file(s), "
+                    f"kept {summary.get('kept', 0)}"
+                )
             except Exception as e:
                 self._log_status(f"⚠️ Cleanup skipped: {e}", "warning")
             
@@ -475,11 +549,18 @@ class AutonomousLearningUseCase:
             )
             
             monitoring_end = datetime.now() + timedelta(minutes=self.config.monitoring_interval_minutes)
-            key_frequencies = [
-                self.config.frequency_start,
-                (self.config.frequency_start + self.config.frequency_end) / 2.0,
-                self.config.frequency_end,
-            ]
+
+            # Monitor across the sweep plan, not just three isolated points.
+            # Previously the loop visited only start/mid/end, so a "10 minute
+            # monitoring phase" observed 3 x 10 s and left the rest of the band
+            # unmonitored for the other ~9.5 minutes.
+            key_frequencies = self._build_sweep_plan()
+            if key_frequencies:
+                self._log_status(
+                    f"🔍 Monitoring {len(key_frequencies)} sweep positions "
+                    f"({self.config.per_frequency_hold_seconds:.0f}s each) across "
+                    f"{self.config.frequency_start/1e6:.1f}-{self.config.frequency_end/1e6:.1f} MHz"
+                )
             
             # Compute samples per window
             window_seconds = max(0.02, float(self.config.monitor_window_ms) / 1000.0)
@@ -501,7 +582,11 @@ class AutonomousLearningUseCase:
                     while datetime.now() < stay_until and datetime.now() < monitoring_end and not self._stop_event.is_set():
                         try:
                             samples = self.sdr.read_samples(samples_per_window)
-                            # Build minimal SpectrumData without disk IO
+                            # Build SpectrumData without disk IO. The samples
+                            # list is kept as the numpy array's own tolist(),
+                            # which is what it always was, but the detector is
+                            # handed the array directly below to avoid a costly
+                            # list -> complex -> array round trip.
                             sd = SpectrumData(
                                 frequency_hz=freq,
                                 sample_rate_hz=self.config.sample_rate,
@@ -509,6 +594,9 @@ class AutonomousLearningUseCase:
                                 samples=samples.tolist(),
                                 power_spectrum=None,
                                 duration_seconds=samples_per_window / self.config.sample_rate,
+                                sample_rate_actual_hz=float(
+                                    getattr(self.sdr, "sample_rate", 0) or self.config.sample_rate
+                                ),
                             )
                             # Detect and publish immediately
                             anomalies = self.anomaly_use_case.detect_anomalies(sd)

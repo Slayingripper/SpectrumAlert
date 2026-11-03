@@ -26,11 +26,13 @@ monitor_app = typer.Typer(help="Spectrum monitoring commands")
 train_app = typer.Typer(help="Model training commands")
 config_app = typer.Typer(help="Configuration commands")
 system_app = typer.Typer(help="System management commands")
+geo_app = typer.Typer(help="Multi-receiver geolocation and calibration")
 
 app.add_typer(monitor_app, name="monitor")
 app.add_typer(train_app, name="train")
 app.add_typer(config_app, name="config")
 app.add_typer(system_app, name="system")
+app.add_typer(geo_app, name="geo")
 
 
 def setup_logging(verbose: bool = False):
@@ -276,15 +278,22 @@ def monitor_status():
     table.add_column("Details")
     
     try:
-        # Check SDR availability
-        from spectrum_alert.infrastructure.sdr import RTLSDRInterface
-        try:
-            sdr = RTLSDRInterface()
-            sdr.open()
-            sdr.close()
-            table.add_row("SDR Device", "[green]Available[/green]", "RTL-SDR detected")
-        except Exception as e:
-            table.add_row("SDR Device", "[red]Error[/red]", str(e))
+        # Check SDR availability. Prefer the direct hardware probe: it tells
+        # "no dongle attached" apart from "driver/library broken", which the
+        # pyrtlsdr error string alone cannot.
+        from spectrum_alert.infrastructure.sdr.scanner import probe_local_sdr
+        probe = probe_local_sdr(force=True)
+        if probe["available"]:
+            names = ", ".join(d["name"] for d in probe["devices"])
+            table.add_row("SDR Device", "[green]Available[/green]", names or "RTL-SDR detected")
+        elif probe["status"] == "no-device":
+            table.add_row("SDR Device", "[yellow]No device[/yellow]", probe["detail"])
+        elif probe["status"] == "tools-missing":
+            table.add_row("SDR Device", "[red]No tools[/red]", probe["detail"])
+        else:
+            # Library problems (e.g. undefined symbol from a version
+            # mismatch) land here with the probe's explanation attached.
+            table.add_row("SDR Device", "[red]Error[/red]", probe["detail"])
         
         # Check system resources
         from spectrum_alert.infrastructure.monitoring import SystemMonitor
@@ -856,6 +865,406 @@ def web(
     except Exception as e:
         console.print(f"[bold red]Error starting web dashboard: {e}[/bold red]")
         raise typer.Exit(1)
+
+
+@geo_app.command("receivers")
+def geo_receivers(
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory")
+):
+    """List configured receivers"""
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    import os
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    receivers = store.list()
+
+    if not receivers:
+        console.print("[yellow]No receivers configured.[/yellow]")
+        console.print("Add one with: [cyan]spectrum-alert geo add-receiver --help[/cyan]")
+        return
+
+    table = Table(title=f"{len(receivers)} receiver(s)")
+    table.add_column("Name")
+    table.add_column("Mode")
+    table.add_column("Latitude")
+    table.add_column("Longitude")
+    table.add_column("On")
+    table.add_column("Tuning")
+
+    for receiver in receivers:
+        tuning = []
+        if receiver.gain_db is not None:
+            tuning.append(f"gain {receiver.gain_db} dB")
+        if receiver.ppm_error:
+            tuning.append(f"ppm {receiver.ppm_error}")
+        if receiver.manual_rssi_db is not None:
+            tuning.append(f"manual {receiver.manual_rssi_db:.1f} dBFS")
+        table.add_row(
+            receiver.name,
+            receiver.mode.value,
+            f"{receiver.lat:.6f}",
+            f"{receiver.lon:.6f}",
+            "yes" if receiver.enabled else "no",
+            ", ".join(tuning) or "-",
+        )
+    console.print(table)
+
+
+@geo_app.command("add-receiver")
+def geo_add_receiver(
+    name: str = typer.Argument(..., help="Receiver name"),
+    lat: float = typer.Option(..., "--lat", help="Latitude in degrees"),
+    lon: float = typer.Option(..., "--lon", help="Longitude in degrees"),
+    mode: str = typer.Option("local", "--mode", help="local or rtltcp"),
+    device_index: int = typer.Option(0, "--device", help="Local dongle index"),
+    host: Optional[str] = typer.Option(None, "--host", help="rtl_tcp host"),
+    port: int = typer.Option(1234, "--port", help="rtl_tcp port"),
+    gain: Optional[float] = typer.Option(None, "--gain", help="Manual gain in dB"),
+    ppm: Optional[float] = typer.Option(None, "--ppm", help="Crystal error in ppm"),
+    manual_db: Optional[float] = typer.Option(None, "--manual-db", help="Pin to a fixed dBFS level"),
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory"),
+):
+    """Add or update a receiver"""
+    from spectrum_alert.core.domain.receivers import SDRReceiver
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    import os
+    import uuid
+
+    try:
+        receiver = SDRReceiver(
+            id=str(uuid.uuid4()),
+            name=name,
+            mode=mode,
+            lat=lat,
+            lon=lon,
+            device_index=device_index if mode == "local" else None,
+            host=host if mode == "rtltcp" else None,
+            port=port if mode == "rtltcp" else None,
+            gain_db=gain,
+            ppm_error=ppm,
+            manual_rssi_db=manual_db,
+        )
+        receiver.validate_transport()
+    except Exception as exc:
+        console.print(f"[bold red]Invalid receiver: {exc}[/bold red]")
+        raise typer.Exit(1)
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    store.save(receiver)
+    console.print(f"[green]Saved receiver {receiver.name} ({receiver.id})[/green]")
+
+
+@geo_app.command("scan")
+def geo_scan(
+    frequency: float = typer.Argument(..., help="Centre frequency in Hz"),
+    receiver: Optional[str] = typer.Option(None, "--receiver", "-r", help="Receiver id or name"),
+    span: float = typer.Option(2_000_000.0, "--span", help="Span in Hz"),
+    bins: int = typer.Option(64, "--bins", help="Number of output bins"),
+    integration: float = typer.Option(1.0, "--integration", "-i", help="Integration seconds"),
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory"),
+):
+    """Run a real spectrum scan and print the peaks"""
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    from spectrum_alert.infrastructure.sdr.scanner import SpectrumScanner
+    from spectrum_alert.core.services.spectrum_analysis import analyze_spectrum
+    import os
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    receivers = store.enabled()
+    if not receivers:
+        console.print("[bold red]No enabled receivers.[/bold red]")
+        raise typer.Exit(1)
+
+    if receiver:
+        match = next(
+            (r for r in receivers
+             if r.id == receiver or r.name.lower() == receiver.lower()),
+            None,
+        )
+        if match is None:
+            console.print(f"[bold red]Receiver '{receiver}' not found.[/bold red]")
+            raise typer.Exit(1)
+        targets = [match]
+    else:
+        targets = [receivers[0]]
+
+    scanner = SpectrumScanner()
+    for target in targets:
+        console.print(f"Scanning [cyan]{target.name}[/cyan] at {frequency/1e6:.6f} MHz...")
+        try:
+            scan = scanner.scan(target, frequency, span, None, integration, bins)
+        except Exception as exc:
+            console.print(f"[bold red]{target.name}: {exc}[/bold red]")
+            continue
+
+        analysis = analyze_spectrum(
+            [p["hz"] for p in scan.points],
+            [p["dbm"] for p in scan.points],
+            frequency,
+        )
+        table = Table(title=f"{target.name} ({scan.source})")
+        table.add_column("Metric")
+        table.add_column("Value")
+        table.add_row("Peak", f"{scan.peak_dbfs:.1f} dBFS @ {(scan.peak_hz or 0)/1e6:.6f} MHz")
+        table.add_row("Noise floor", f"{scan.noise_floor_dbfs:.1f} dBFS")
+        table.add_row("At target", f"{analysis.target_dbfs:.1f} dBFS")
+        table.add_row("Prominence", f"{analysis.prominence_db:.1f} dB")
+        table.add_row("Reliability", f"{analysis.reliability:.2f}")
+        console.print(table)
+        if scan.warning:
+            console.print(f"[yellow]note: {scan.warning}[/yellow]")
+
+
+@geo_app.command("triangulate")
+def geo_triangulate(
+    frequency: float = typer.Argument(..., help="Frequency to locate, in Hz"),
+    reference: Optional[float] = typer.Option(None, "--reference", "-r", help="Reference RSSI at 1 m, dBm"),
+    exponent: Optional[float] = typer.Option(None, "--exponent", "-n", help="Path-loss exponent"),
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory"),
+):
+    """Locate a frequency using every enabled receiver"""
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    from spectrum_alert.infrastructure.sdr.scanner import SpectrumScanner
+    from spectrum_alert.core.services.spectrum_analysis import analyze_spectrum
+    from spectrum_alert.core.services.propagation import frequency_default_path_loss, rssi_to_distance_meters
+    from spectrum_alert.core.services.triangulation import TriangulationReading, triangulate_position
+    from spectrum_alert.core.services.calibration import CalibrationTable
+    import os
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    receivers = store.enabled()
+    if len(receivers) < 2:
+        console.print("[bold red]At least 2 enabled receivers are required.[/bold red]")
+        raise typer.Exit(1)
+
+    calibration = CalibrationTable.load(os.path.join(data_dir, "calibration.json"))
+    defaults = frequency_default_path_loss(frequency)
+    n = exponent if exponent is not None else defaults.exponent
+    if exponent is not None and not (1.5 <= exponent <= 4.5):
+        console.print(
+            f"[yellow]n={exponent} is outside the plausible range; using {defaults.exponent}[/yellow]"
+        )
+        n = defaults.exponent
+    p0 = reference if reference is not None else defaults.reference_rssi_dbm
+
+    scanner = SpectrumScanner()
+    readings = []
+    for target in receivers:
+        try:
+            scan = scanner.scan(target, frequency, 120_000.0, None, 0.5, 128)
+        except Exception as exc:
+            console.print(f"[yellow]{target.name}: {exc}[/yellow]")
+            continue
+        analysis = analyze_spectrum(
+            [p["hz"] for p in scan.points], [p["dbm"] for p in scan.points], frequency
+        )
+        offset = calibration.offset_for(target.id, frequency)
+        level = analysis.target_dbfs + offset
+        modelled = rssi_to_distance_meters(level, p0, n)
+        colour = "green" if analysis.reliability >= 0.5 else "yellow"
+        console.print(
+            f"  {target.name}: {level:.1f} dBFS -> {modelled:.0f} m "
+            f"(prominence {analysis.prominence_db:.1f} dB, reliability "
+            f"[{colour}]{analysis.reliability:.2f}[/{colour}])"
+        )
+        readings.append(
+            TriangulationReading(
+                receiver_id=target.id, name=target.name, lat=target.lat, lon=target.lon,
+                rssi_db=level, source=scan.source, reliability=analysis.reliability,
+            )
+        )
+
+    if len(readings) < 2:
+        console.print("[bold red]Not enough receivers reported a level.[/bold red]")
+        raise typer.Exit(1)
+
+    estimate = triangulate_position(readings, p0, n)
+    colour = {"good": "green", "fair": "yellow", "poor": "red"}.get(estimate.quality, "white")
+
+    table = Table(title=f"Estimate at {frequency/1e6:.6f} MHz")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("Latitude", f"{estimate.lat:.6f}")
+    table.add_row("Longitude", f"{estimate.lon:.6f}")
+    table.add_row("Uncertainty", f"+/- {estimate.uncertainty_meters:.0f} m")
+    table.add_row("RMS residual", f"{estimate.rms_residual_meters:.0f} m ({estimate.rms_rssi_residual_db:.2f} dB)")
+    table.add_row("Receiver spread", f"{estimate.receiver_spread_meters:.0f} m")
+    table.add_row("Quality", f"[{colour}]{estimate.quality}[/{colour}]")
+    table.add_row("Reasons", "; ".join(estimate.quality_reasons))
+    console.print(table)
+
+    residual_table = Table(title="Residuals")
+    residual_table.add_column("Receiver")
+    residual_table.add_column("Measured dBFS")
+    residual_table.add_column("Predicted dBFS")
+    residual_table.add_column("Residual dB")
+    for detail in estimate.residuals:
+        residual_table.add_row(
+            detail.name,
+            f"{detail.measured_rssi_db:.1f}",
+            f"{detail.predicted_rssi_db:.1f}",
+            f"{detail.residual_db:+.2f}",
+        )
+    console.print(residual_table)
+    console.print("[dim]RSSI path-loss model; accuracy depends on calibration and geometry.[/dim]")
+
+
+@geo_app.command("fit-ple")
+def geo_fit_ple(
+    apply: bool = typer.Option(False, "--apply", help="Store the fitted model"),
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory"),
+):
+    """Fit the path-loss exponent from known transmitter positions"""
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    from spectrum_alert.infrastructure.sdr.scanner import SpectrumScanner
+    from spectrum_alert.core.services.spectrum_analysis import analyze_spectrum
+    from spectrum_alert.core.services.calibration import (
+        CalibrationTable, build_observations, fit_path_loss_exponent,
+    )
+    from spectrum_alert.web.geolocate import DEFAULT_TRANSMITTERS
+    import os
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    receivers = store.enabled()
+    if not receivers:
+        console.print("[bold red]No enabled receivers.[/bold red]")
+        raise typer.Exit(1)
+
+    calibration = CalibrationTable.load(os.path.join(data_dir, "calibration.json"))
+    scanner = SpectrumScanner()
+    measurements = {}
+
+    for transmitter in DEFAULT_TRANSMITTERS:
+        frequency = transmitter["frequency_hz"]
+        for target in receivers:
+            if target.manual_rssi_db is not None:
+                continue
+            try:
+                scan = scanner.scan(target, frequency, 160_000.0, None, 1.0, 128)
+            except Exception as exc:
+                console.print(f"[yellow]{target.name} @ {frequency/1e6:.1f} MHz: {exc}[/yellow]")
+                continue
+            analysis = analyze_spectrum(
+                [p["hz"] for p in scan.points], [p["dbm"] for p in scan.points], frequency
+            )
+            if analysis.reliability >= 0.2:
+                measurements[(target.id, frequency)] = analysis.target_dbfs
+
+    observations = build_observations(
+        DEFAULT_TRANSMITTERS, [r.to_dict() for r in receivers], measurements, calibration
+    )
+    result = fit_path_loss_exponent(observations, default_frequency_hz=DEFAULT_TRANSMITTERS[0]["frequency_hz"])
+
+    table = Table(title="Path-loss fit")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("n", f"{result.path_loss_exponent:.3f}")
+    table.add_row("P0", f"{result.reference_rssi_dbm:.2f} dBm")
+    table.add_row("R2", f"{result.r_squared:.4f}")
+    table.add_row("Points used", f"{sum(1 for p in result.points if p.used_in_fit)}/{len(result.points)}")
+    if result.fallback_applied:
+        table.add_row("Fallback", "yes (band defaults used)")
+    console.print(table)
+
+    if result.warning:
+        console.print(f"[yellow]{result.warning}[/yellow]")
+    for error in result.errors:
+        console.print(f"[dim]{error}[/dim]")
+
+    for point in result.points:
+        marker = "Y" if point.used_in_fit else "N"
+        console.print(
+            f"  {point.transmitter[:24]:<24} {point.distance_meters/1000:7.2f} km "
+            f"{point.adjusted_dbfs:7.1f} dBFS  resid {point.residual_db:+.2f}  in={marker}"
+        )
+
+    if apply and not result.fallback_applied:
+        console.print(
+            f"[green]Use: spectrum-alert geo triangulate --reference {result.reference_rssi_dbm:.2f} "
+            f"--exponent {result.path_loss_exponent:.3f}[/green]"
+        )
+    elif apply:
+        console.print("[yellow]Fit was not good enough to apply.[/yellow]")
+
+
+@geo_app.command("calibrate")
+def geo_calibrate(
+    apply: bool = typer.Option(False, "--apply", help="Persist the offsets"),
+    data_dir: str = typer.Option("data", "--data-dir", help="Data directory"),
+):
+    """Compute per-receiver calibration offsets from known transmitters"""
+    from spectrum_alert.infrastructure.storage.receiver_store import ReceiverStore
+    from spectrum_alert.infrastructure.sdr.scanner import SpectrumScanner
+    from spectrum_alert.core.services.spectrum_analysis import analyze_spectrum
+    from spectrum_alert.core.services.calibration import (
+        CalibrationTable, compute_relative_offsets, frequency_key,
+    )
+    from spectrum_alert.web.geolocate import DEFAULT_TRANSMITTERS
+    import os
+
+    store = ReceiverStore(os.path.join(data_dir, "receivers.json"))
+    receivers = store.enabled()
+    if not receivers:
+        console.print("[bold red]No enabled receivers.[/bold red]")
+        raise typer.Exit(1)
+
+    calibration = CalibrationTable.load(os.path.join(data_dir, "calibration.json"))
+    scanner = SpectrumScanner()
+    preview = {}
+
+    for transmitter in DEFAULT_TRANSMITTERS:
+        frequency = transmitter["frequency_hz"]
+        readings = []
+        for target in receivers:
+            if target.manual_rssi_db is not None:
+                continue
+            try:
+                scan = scanner.scan(target, frequency, 160_000.0, None, 1.0, 128)
+            except Exception as exc:
+                console.print(f"[yellow]{target.name} @ {frequency/1e6:.1f} MHz: {exc}[/yellow]")
+                continue
+            analysis = analyze_spectrum(
+                [p["hz"] for p in scan.points], [p["dbm"] for p in scan.points], frequency
+            )
+            readings.append({
+                "receiver_id": target.id,
+                "receiver_name": target.name,
+                "rssi_dbfs": analysis.target_dbfs,
+            })
+
+        offsets, rejected = compute_relative_offsets(readings, frequency)
+        rejected and [console.print(f"[yellow]rejected: {r}[/yellow]") for r in rejected]
+        for receiver_id, entry in offsets.items():
+            preview.setdefault(receiver_id, {})[frequency_key(frequency)] = entry
+
+    table = Table(title="Calibration offsets (dB)")
+    for receiver in receivers:
+        entries = preview.get(receiver.id, {})
+        if not entries:
+            continue
+        table.add_row(receiver.name, ", ".join(
+            f"{parse_frequency_label(key)}: {entry['offset']:+.2f}"
+            for key, entry in sorted(entries.items(), key=lambda kv: int(kv[0].lstrip('k')))
+        ))
+
+    if any(preview.values()):
+        console.print(table)
+    else:
+        console.print("[yellow]No usable measurements; nothing to calibrate against.[/yellow]")
+
+    if apply and preview:
+        calibration.merge(preview)
+        calibration.save()
+        console.print("[green]Calibration offsets applied and saved.[/green]")
+    elif preview:
+        console.print("[dim]Re-run with --apply to store these offsets.[/dim]")
+
+
+def parse_frequency_label(key: str) -> str:
+    """Render a ``k446100`` calibration key as a readable frequency."""
+    from spectrum_alert.core.services.calibration import parse_frequency_key
+
+    return f"{parse_frequency_key(key)/1e6:.3f} MHz"
 
 
 if __name__ == "__main__":

@@ -57,6 +57,20 @@ class MockRTLSDRInterface:
         
     def close(self):
         self._is_open = False
+
+    def safe_operation(self, recover=True, close_on_exit=False):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _ctx():
+            if not self._is_open:
+                self.open()
+            try:
+                yield self
+            finally:
+                if close_on_exit:
+                    self.close()
+        return _ctx()
         
     def set_center_freq(self, frequency):
         self._center_freq = frequency

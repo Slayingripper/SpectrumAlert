@@ -1,141 +1,92 @@
-version: '3.8'
+# SpectrumAlert container stack.
+#
+#   docker compose up -d                      # dashboard on http://localhost:8088
+#   docker compose logs -f                    # follow the dashboard log
+#   docker compose run --rm spectrumalert monitor status   # one-off CLI command
+#   docker compose --profile service up spectrumalert-service
+#   docker compose --profile autonomous up spectrumalert-autonomous
+#
+# The default service used to run `monitor status`, which prints a table and
+# exits 0. With `restart: unless-stopped` that put the container in a permanent
+# restart loop and nothing ever came up. The default is now the long-running web
+# dashboard; use `docker compose run` for CLI commands.
+#
+# USB access: the SDR is handed over with `devices:` plus `group_add: plugdev`.
+# The image's non-root `spectrum` user is already in plugdev (gid 46, which is
+# what the host uses), so this works without `privileged: true` and without
+# bind-mounting the whole of /dev into the container.
+
+x-usb: &usb
+  devices:
+    - /dev/bus/usb:/dev/bus/usb
+  group_add:
+    - plugdev
+
+x-persistence: &persistence
+  volumes:
+    - ./data:/app/data
+    - ./models:/app/models
+    - ./logs:/app/logs
+    - ./config:/app/config
 
 services:
+  # Default service: the web dashboard, with the SDR attached.
   spectrumalert:
     build: .
+    image: spectrumalert:latest
     container_name: spectrum-alert
     restart: unless-stopped
-    
-    # Device access for RTL-SDR
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
-    
-    # Privileged mode for USB device access
-    privileged: true
-    
-    # Environment variables
+    <<: [*usb, *persistence]
     environment:
       - PYTHONUNBUFFERED=1
-      - SPECTRUM_MODE=interactive
       - LOG_LEVEL=INFO
-    
-    # Volume mounts for persistent data
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-      - ./config:/app/config
-      - /dev:/dev
-    
-    # Network configuration
-    network_mode: host
-    
-    # Interactive mode by default
-    stdin_open: true
-    tty: true
+    ports:
+      # Host port only; the app always listens on 8000 inside the container.
+      # 8088 rather than 8000 because 8000 is Portainer's convention and is
+      # usually already bound. Override with SPECTRUM_ALERT_WEB_PORT.
+      - "${SPECTRUM_ALERT_WEB_PORT:-8088}:8000"
+    command: ["web", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
 
-  # Autonomous service - 24h data collection + training + monitoring
+  # Autonomous service: 24h data collection + training + monitoring.
   spectrumalert-autonomous:
     build: .
+    image: spectrumalert:latest
     container_name: spectrum-alert-autonomous
     restart: unless-stopped
-    
-    # Device access for RTL-SDR
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
-    
-    # Privileged mode for USB device access
-    privileged: true
-    
-    # Environment variables for autonomous mode
+    <<: [*usb, *persistence]
     environment:
       - PYTHONUNBUFFERED=1
-      - SPECTRUM_MODE=autonomous
       - LOG_LEVEL=INFO
       - COLLECTION_HOURS=24
       - SERVICE_LITE_MODE=false
       - SERVICE_ALERT_THRESHOLD=0.7
-      - RETRAIN_INTERVAL_HOURS=168  # Weekly retraining
+      - RETRAIN_INTERVAL_HOURS=168
       - MIN_TRAINING_SAMPLES=1000
-    
-    # Volume mounts for persistent data
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-      - ./config:/app/config
-      - /dev:/dev
-    
-    # Network configuration
-    network_mode: host
-    
-    # Autonomous mode command
-    command: ["python", "autonomous_service.py"]
-    
-    # Don't start by default (use profiles)
+    # Was `python autonomous_service.py`, a file that does not exist.
+    command: ["monitor", "autonomous"]
     profiles:
       - autonomous
 
-  # Service mode - continuous monitoring
+  # Service mode: continuous monitoring.
   spectrumalert-service:
     build: .
+    image: spectrumalert:latest
     container_name: spectrum-alert-service
     restart: unless-stopped
-    
-    # Device access for RTL-SDR
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
-    
-    # Privileged mode for USB device access
-    privileged: true
-    
-    # Environment variables for service mode
+    <<: [*usb, *persistence]
     environment:
       - PYTHONUNBUFFERED=1
-      - SPECTRUM_MODE=service
       - LOG_LEVEL=INFO
-      - SERVICE_MODEL=latest  # Use latest trained model
       - SERVICE_LITE_MODE=false
       - SERVICE_ALERT_THRESHOLD=0.7
-    
-    # Volume mounts for persistent data
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-      - ./config:/app/config
-      - /dev:/dev
-    
-    # Network configuration
-    network_mode: host
-    
-    # Service mode command
-    command: ["python", "service_mode.py"]
-    
-    # Don't start by default (use profiles)
+    # Was `python service_mode.py`, a file that does not exist.
+    command: ["monitor", "start"]
     profiles:
       - service
-
-  # Optional: Web dashboard (future enhancement)
-  spectrumalert-web:
-    build: .
-    container_name: spectrum-alert-web
-    restart: unless-stopped
-    
-    environment:
-      - PYTHONUNBUFFERED=1
-      - SPECTRUM_MODE=web
-    
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-    
-    ports:
-      - "8080:8080"
-    
-    command: ["python", "web_interface.py"]
-    
-    # Don't start by default
-    profiles:
-      - web

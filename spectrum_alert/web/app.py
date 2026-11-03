@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
     FASTAPI_AVAILABLE = True
@@ -25,6 +25,7 @@ except ImportError:
 
 from spectrum_alert.infrastructure.storage import DataStorage
 from spectrum_alert.infrastructure.monitoring import SystemMonitor
+from spectrum_alert.web.geolocate import build_router, default_service
 
 # Import use case classes for the web app endpoints
 try:
@@ -45,7 +46,45 @@ except ImportError as e:
 
 class SpectrumAlertWebApp:
     """SpectrumAlert Web Application"""
-    
+
+    # The dongle has exactly one USB interface and librtlsdr refuses to claim
+    # it while another handle holds it (LIBUSB_ERROR_BUSY). Stopping monitoring
+    # releases it asynchronously, so pressing Start again straight away used to
+    # fail outright with "No SDR available: ... Resource busy" even though the
+    # operator had simply stopped and restarted. A short bounded retry turns
+    # that race into a brief pause.
+    _SDR_OPEN_ATTEMPTS = 5
+    _SDR_OPEN_DELAY_S = 0.4
+
+    @classmethod
+    def _open_sdr_when_free(cls, sdr, attempts=None, delay=None):
+        """Open the SDR, waiting briefly for a previous handle to be released.
+
+        Raises whatever the last attempt raised; only a busy interface is
+        retried, so a genuinely absent dongle still fails immediately.
+        """
+        import time
+
+        attempts = cls._SDR_OPEN_ATTEMPTS if attempts is None else attempts
+        delay = cls._SDR_OPEN_DELAY_S if delay is None else delay
+
+        last_error = None
+        for attempt in range(max(1, attempts)):
+            try:
+                sdr.open()
+                return sdr
+            except Exception as e:  # noqa: BLE001 - re-raised below
+                if "busy" not in str(e).lower():
+                    raise
+                last_error = e
+                if attempt < attempts - 1:
+                    logger.info(
+                        "SDR still held by another handle, retrying in %.1fs (%d/%d)",
+                        delay, attempt + 1, attempts,
+                    )
+                    time.sleep(delay)
+        raise last_error
+
     def __init__(self):
         if not FASTAPI_AVAILABLE:
             raise ImportError("FastAPI is required for web interface. Install with: pip install fastapi uvicorn jinja2")
@@ -64,7 +103,13 @@ class SpectrumAlertWebApp:
         # Initialize data storage and monitoring
         self.storage = DataStorage()
         self.system_monitor = SystemMonitor()
-        
+
+        # Geolocation service: receiver roster, calibration table, multi-mode
+        # scanner. Mounted as its own router so these endpoints stay separate
+        # from the dashboard's monitoring API.
+        self.geo_service = default_service()
+        self.app.include_router(build_router(self.geo_service))
+
         # Active WebSocket connections
         self.connections: List[WebSocket] = []
         
@@ -101,7 +146,23 @@ class SpectrumAlertWebApp:
         @self.app.get("/", response_class=HTMLResponse)
         async def dashboard(request: Request):
             """Main dashboard page"""
-            return self.templates.TemplateResponse("dashboard.html", {"request": request})
+            # TemplateResponse(request, name, context) is the Starlette >=0.29
+            # signature. The old (name, context) form is interpreted as
+            # (name, parent) and raises "TypeError: unhashable type: 'dict'".
+            return self.templates.TemplateResponse(request, "dashboard.html")
+
+        @self.app.get("/geolocate", response_class=HTMLResponse)
+        async def geolocate_page(request: Request):
+            """Redirect to the dashboard, which now hosts the workspace.
+
+            The analysis workspace (receivers, waterfall, location, device
+            identification) used to be a second page reached from a link in the
+            header. Splitting one workflow across two documents meant the
+            operator lost the system panels whenever they located or identified
+            something. It is now a section of the dashboard, and this route
+            stays so existing bookmarks and the header link keep working.
+            """
+            return RedirectResponse(url="/#workspace", status_code=302)
         
         @self.app.get("/api/system/status")
         async def get_system_status():
@@ -128,6 +189,8 @@ class SpectrumAlertWebApp:
                         "memory_usage": status.get("metrics", {}).get("memory", {}).get("percent", 0),
                         "disk_usage": status.get("metrics", {}).get("disk", {}).get("percent", 0),
                         "uptime": self.system_monitor.get_uptime_string(),
+                        # Real sensor value or None; the card must not invent one.
+                        "temperature": status.get("temperature"),
                         "status": status.get("status", "unknown"),
                         "health_checks": status.get("health_checks", {})
                     }
@@ -142,8 +205,9 @@ class SpectrumAlertWebApp:
                 return {"status": "error", "message": str(e)}
         
         @self.app.get("/api/anomalies/recent")
-        async def get_recent_anomalies(hours: int = 24):
-            """Get recent anomalies"""
+        async def get_recent_anomalies(hours: int = 24, min_hz: float = None,
+                                       max_hz: float = None):
+            """Get recent anomalies, optionally scoped to a frequency window."""
             try:
                 # Get anomalies from the last N hours
                 since = datetime.now() - timedelta(hours=hours)
@@ -152,6 +216,14 @@ class SpectrumAlertWebApp:
                 # Convert to JSON-serializable format
                 anomaly_data = []
                 for anomaly in anomalies:
+                    # Optional window filter: a persisted detection from an
+                    # earlier scan at a different centre is not part of what is
+                    # being monitored now, and showing it reads as a detection
+                    # "on a frequency not being monitored".
+                    if min_hz is not None and anomaly.frequency_hz < min_hz:
+                        continue
+                    if max_hz is not None and anomaly.frequency_hz > max_hz:
+                        continue
                     anomaly_data.append({
                         "id": str(anomaly.id),
                         "timestamp": anomaly.timestamp.isoformat(),
@@ -160,6 +232,8 @@ class SpectrumAlertWebApp:
                         "confidence_score": anomaly.confidence_score,
                         "severity": anomaly.severity,
                         "description": anomaly.description,
+                        "anomaly_type": (anomaly.anomaly_type.value
+                                         if anomaly.anomaly_type else None),
                         "detection_mode": anomaly.detection_mode.value
                     })
                 
@@ -225,16 +299,22 @@ class SpectrumAlertWebApp:
         async def start_monitoring(config: dict = None):
             """Start spectrum monitoring"""
             try:
-                # Import monitoring components
-                from spectrum_alert.application.use_cases.spectrum_monitoring import SpectrumMonitoringUseCase
-                from spectrum_alert.application.use_cases.anomaly_detection import AnomalyDetectionUseCase
-                from spectrum_alert.infrastructure.sdr import SDRInterface
-                from spectrum_alert.infrastructure.storage import DataStorage
-                from spectrum_alert.infrastructure.monitoring import SystemMonitor
-                from spectrum_alert.core.services.feature_extraction import FeatureExtractor
-                
+                # Idempotency guard. Without it, concurrent POSTs each created a
+                # task and each opened the dongle, so two loops interleaved their
+                # retunes and USB reads against one device and two tasks appended
+                # to the same anomaly CSV.
+                # All component classes come from module level: a local import
+                # here would shadow the patchable names tests rely on.
+                if getattr(self, 'monitoring_active', False):
+                    return {
+                        "status": "success",
+                        "message": "Monitoring is already running",
+                        "config": getattr(self, 'monitoring_config', None),
+                    }
+
                 # Set up monitoring with default or provided config
                 monitoring_config = config or {
+                    "center_freq": 145,
                     "frequency_range": "88-108",
                     "sample_rate": 2048000,
                     "gain": 20,
@@ -242,64 +322,65 @@ class SpectrumAlertWebApp:
                     "scan_interval": 5,
                     "strict_mode": False
                 }
-                
-                # Initialize services
-                from spectrum_alert.infrastructure.sdr import RTLSDRInterface, SDRInterface
-                import numpy as np
-                
-                class MockSDRInterface(SDRInterface):
-                    """Mock SDR interface for testing when hardware isn't available"""
-                    def open(self): pass
-                    def close(self): pass
-                    def set_center_freq(self, frequency): pass
-                    def set_sample_rate(self, sample_rate): pass
-                    def set_gain(self, gain): pass
-                    def read_samples(self, num_samples):
-                        # Return random complex samples for testing
-                        return np.random.random(num_samples) + 1j * np.random.random(num_samples)
-                
+
+                # Initialize services. No hardware must surface as an error:
+                # a silent fallback to synthetic data made the dashboard say
+                # "No SDR hardware found" while the dongle sat on the bus.
+                if RTLSDRInterface is None:
+                    return {
+                        "status": "error",
+                        "message": (
+                            "RTL-SDR support is unavailable: pyrtlsdr is not "
+                            "installed (pip install pyrtlsdr)."
+                        ),
+                    }
+
                 try:
                     sdr = RTLSDRInterface()  # Use RTL-SDR implementation
-                    sdr.open()  # Open the SDR device
+                    self._open_sdr_when_free(sdr)
                     logger.info("RTL-SDR device initialized successfully")
                 except Exception as e:
-                    logger.warning(f"RTL-SDR initialization failed: {e}. Using mock SDR for testing.")
-                    # Use mock SDR for testing/demo purposes
-                    sdr = MockSDRInterface()
-                    
+                    logger.error("No SDR available: %s", e)
+                    return {
+                        "status": "error",
+                        "message": f"No SDR available: {e}",
+                    }
+
                 storage = DataStorage()
-                system_monitor = SystemMonitor()
                 feature_extractor = FeatureExtractor(lite_mode=True)  # Use lite mode for web
                 anomaly_detector = AnomalyDetectionUseCase(feature_extractor)
                 anomaly_detector.set_threshold(monitoring_config.get("threshold", 0.8))
                 if monitoring_config.get("strict_mode", False):
                     anomaly_detector.set_strict_threshold_mode(True)
-                
+
                 monitoring_service = SpectrumMonitoringUseCase(
                     sdr_interface=sdr,
                     storage=storage,
                     feature_extractor=feature_extractor
                 )
-                
+
                 # Attach anomaly detector to monitoring service
                 monitoring_service.anomaly_detector = anomaly_detector
-                
+
                 # Store monitoring service for later control
                 self.monitoring_service = monitoring_service
+                self.monitoring_config = monitoring_config
+                self.monitoring_task = asyncio.create_task(
+                    self._run_monitoring_loop(monitoring_service, monitoring_config)
+                )
+                # Set active only after the task exists, so /status never reports
+                # running while there is nothing to stop.
                 self.monitoring_active = True
-                
-                # Start monitoring in background
-                import asyncio
-                asyncio.create_task(self._run_monitoring_loop(monitoring_service, monitoring_config))
-                
+
                 return {
                     "status": "success",
                     "message": "Monitoring started successfully",
                     "config": monitoring_config
                 }
-                
+
             except Exception as e:
                 logger.error(f"Failed to start monitoring: {e}")
+                self.monitoring_active = False
                 return {
                     "status": "error",
                     "message": f"Failed to start monitoring: {str(e)}"
@@ -310,22 +391,36 @@ class SpectrumAlertWebApp:
             """Stop spectrum monitoring"""
             try:
                 self.monitoring_active = False
-                if hasattr(self, 'monitoring_service'):
-                    # Properly close the SDR device
-                    if hasattr(self.monitoring_service, 'sdr') and self.monitoring_service.sdr:
-                        try:
-                            self.monitoring_service.sdr.close()
-                            logger.info("SDR device closed successfully")
-                        except Exception as sdr_error:
-                            logger.warning(f"Error closing SDR device: {sdr_error}")
-                    
-                    delattr(self, 'monitoring_service')
-                
+
+                # Wait for the loop to finish before touching the device.
+                # Previously this closed the SDR from the request handler while
+                # the task could be blocked inside read_samples(), and the loop
+                # then reopened it on the next iteration, leaving the dongle open
+                # after "stop".
+                task = getattr(self, 'monitoring_task', None)
+                if task is not None:
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    self.monitoring_task = None
+
+                service = getattr(self, 'monitoring_service', None)
+                if service is not None and getattr(service, 'sdr', None):
+                    try:
+                        service.sdr.close()
+                        logger.info("SDR device closed successfully")
+                    except Exception as sdr_error:
+                        logger.warning(f"Error closing SDR device: {sdr_error}")
+
+                self.monitoring_service = None
+
                 return {
                     "status": "success",
                     "message": "Monitoring stopped successfully"
                 }
-                
+
             except Exception as e:
                 logger.error(f"Failed to stop monitoring: {e}")
                 return {
@@ -336,9 +431,15 @@ class SpectrumAlertWebApp:
         @self.app.get("/api/monitoring/status")
         async def get_monitoring_status():
             """Get current monitoring status"""
+            window = getattr(self, 'monitored_window_hz', None)
             monitoring_data = {
                 "monitoring_active": getattr(self, 'monitoring_active', False),
-                "has_monitoring_service": hasattr(self, 'monitoring_service')
+                "has_monitoring_service": hasattr(self, 'monitoring_service'),
+                # The receiver's real capture window (start/end Hz), or null when
+                # idle. The UI uses this to scope alerts and label the chart.
+                "monitored_window_hz": list(window) if window else None,
+                "center_freq_hz": getattr(self, 'monitoring_center_hz', None),
+                "span_hz": getattr(self, 'monitoring_span_hz', None),
             }
             
             # Return both data nested and flattened for backward compatibility
@@ -348,10 +449,39 @@ class SpectrumAlertWebApp:
                 **monitoring_data  # Flatten to top level
             }
 
-        # Advanced monitoring endpoints
+        @self.app.post("/api/monitoring/retune")
+        async def retune_monitoring(config: dict = None):
+            """Re-tune an active scan without restarting it.
+
+            The monitoring loop reads `monitoring_config` every iteration, so
+            updating the centre frequency here takes effect on the next capture.
+            """
+            try:
+                if not getattr(self, 'monitoring_active', False):
+                    return {"status": "error", "message": "Monitoring is not running"}
+                cfg = getattr(self, 'monitoring_config', None)
+                if cfg is None:
+                    return {"status": "error", "message": "No active monitoring configuration"}
+                config = config or {}
+                if config.get("center_freq") is not None:
+                    cfg["center_freq"] = float(config["center_freq"])
+                if config.get("sample_rate") is not None:
+                    cfg["sample_rate"] = int(config["sample_rate"])
+                if config.get("frequency_range"):
+                    cfg["frequency_range"] = config["frequency_range"]
+                return {
+                    "status": "success",
+                    "message": "Re-tuned",
+                    "config": cfg,
+                }
+            except Exception as e:
+                logger.error(f"Failed to retune monitoring: {e}")
+                return {"status": "error", "message": str(e)}
+
+        # Advanced monitoring configuration endpoints
         @self.app.post("/api/monitoring/multiband")
         async def start_multiband_monitoring(config: Optional[dict] = None):
-            """Start multi-band autonomous monitoring"""
+            """Record a multi-band configuration (does not start a capture)"""
             try:
                 multiband_config = config or {
                     "bands": ["144-148", "430-440"],
@@ -366,13 +496,16 @@ class SpectrumAlertWebApp:
                     "novelty_filter": False
                 }
                 
-                # Store multiband configuration
+                # Record the configuration only. This endpoint starts no capture
+                # loop, so raising monitoring_active here made /status and the
+                # MONITOR indicator report a run that did not exist, and the
+                # idempotency guard then refused a real start as "already
+                # running". Capture is started from /api/monitoring/start.
                 self.multiband_config = multiband_config
-                self.monitoring_active = True
                 
-                logger.info(f"Starting multi-band monitoring with config: {multiband_config}")
+                logger.info(f"Recording multi-band configuration: {multiband_config}")
                 
-                # Broadcast start of multi-band monitoring
+                # Broadcast the recorded configuration
                 await self._broadcast_to_websockets({
                     "type": "multiband_monitoring_started",
                     "data": multiband_config
@@ -380,20 +513,20 @@ class SpectrumAlertWebApp:
                 
                 return {
                     "status": "success",
-                    "message": "Multi-band monitoring started successfully",
+                    "message": "Multi-band configuration recorded",
                     "config": multiband_config
                 }
                 
             except Exception as e:
-                logger.error(f"Failed to start multi-band monitoring: {e}")
+                logger.error(f"Failed to record multi-band configuration: {e}")
                 return {
                     "status": "error",
-                    "message": f"Failed to start multi-band monitoring: {str(e)}"
+                    "message": f"Failed to record multi-band configuration: {str(e)}"
                 }
 
         @self.app.post("/api/monitoring/advanced")
         async def start_advanced_monitoring(config: Optional[dict] = None):
-            """Start advanced monitoring with filtering options"""
+            """Record an advanced configuration (does not start a capture)"""
             try:
                 advanced_config = config or {
                     "frequency_start": 144.0,
@@ -410,13 +543,12 @@ class SpectrumAlertWebApp:
                     "gain": 30
                 }
                 
-                # Store advanced configuration
+                # Record the configuration only; see /api/monitoring/multiband.
                 self.advanced_config = advanced_config
-                self.monitoring_active = True
                 
-                logger.info(f"Starting advanced monitoring with config: {advanced_config}")
+                logger.info(f"Recording advanced configuration: {advanced_config}")
                 
-                # Broadcast start of advanced monitoring
+                # Broadcast the recorded configuration
                 await self._broadcast_to_websockets({
                     "type": "advanced_monitoring_started",
                     "data": advanced_config
@@ -424,15 +556,15 @@ class SpectrumAlertWebApp:
                 
                 return {
                     "status": "success",
-                    "message": "Advanced monitoring started successfully",
+                    "message": "Advanced configuration recorded",
                     "config": advanced_config
                 }
                 
             except Exception as e:
-                logger.error(f"Failed to start advanced monitoring: {e}")
+                logger.error(f"Failed to record advanced configuration: {e}")
                 return {
                     "status": "error",
-                    "message": f"Failed to start advanced monitoring: {str(e)}"
+                    "message": f"Failed to record advanced configuration: {str(e)}"
                 }
 
         # MQTT integration endpoints
@@ -570,20 +702,18 @@ class SpectrumAlertWebApp:
                             "addresses": [addr.address for addr in addresses if addr.family == 2]  # IPv4
                         })
                 
-                # Temperature (if available)
-                temperature = None
-                try:
-                    sensors = psutil.sensors_temperatures()
-                    if sensors:
-                        for name, entries in sensors.items():
-                            if entries:
-                                temperature = entries[0].current
-                                break
-                except:
-                    pass
+                # Temperature comes from the same helper as every other status
+                # surface: picking "first entry of the first sensor group"
+                # here reported the ambient sensor (16 °C) while the monitor
+                # reported the CPU package (60 °C) for the same machine.
+                temperature = self.system_monitor._read_temperature_c()
                 
-                # SDR device check (mock for now)
-                sdr_status = "Available"  # In real implementation, check for RTL-SDR
+                # Real SDR probe. This used to hardcode "Available" and invent
+                # an "RTL-SDR #0", so the dashboard claimed hardware existed on
+                # machines with no dongle attached at all.
+                from spectrum_alert.infrastructure.sdr.scanner import probe_local_sdr
+                probe = probe_local_sdr()
+                sdr_status = probe["detail"]
                 
                 status_data = {
                     "system": {
@@ -598,11 +728,14 @@ class SpectrumAlertWebApp:
                         "memory_available": memory.available // (1024 * 1024),  # MB
                         "disk_usage": (disk.used / disk.total) * 100,
                         "disk_free": disk.free // (1024 * 1024 * 1024),  # GB
-                        "temperature": temperature
+                        "temperature": temperature,
+                        "uptime": self.system_monitor.get_uptime_string()
                     },
                     "hardware": {
                         "sdr_status": sdr_status,
-                        "sdr_devices": ["RTL-SDR #0"]  # Mock data
+                        "sdr_available": probe["available"],
+                        "sdr_probe_status": probe["status"],
+                        "sdr_devices": probe["devices"]
                     },
                     "network": {
                         "interfaces": network_interfaces
@@ -657,72 +790,125 @@ class SpectrumAlertWebApp:
                 # Parse training configuration
                 training_config = config or {}
                 model_type = training_config.get("model_type", "isolation_forest")
-                dataset_name = training_config.get("dataset", "features_20250820_lite.csv")
+                dataset_name = training_config.get("dataset")
+                mode = training_config.get("mode", "lite")
                 contamination = float(training_config.get("contamination", 0.1))
                 epochs = int(training_config.get("epochs", 100))
-                
-                # Find the dataset file
-                dataset_path = None
-                possible_paths = [
-                    Path(f"data/features/{dataset_name}"),
-                    Path(dataset_name),
-                    Path(f"data/{dataset_name}"),
-                ]
-                
-                for path in possible_paths:
-                    if path.exists():
-                        dataset_path = path
-                        break
-                
-                if not dataset_path:
+
+                if dataset_name:
+                    dataset_path = None
+                    for path in (
+                        Path(f"data/features/{dataset_name}"),
+                        Path(dataset_name),
+                        Path(f"data/{dataset_name}"),
+                    ):
+                        if path.exists():
+                            dataset_path = path
+                            break
+
+                    if not dataset_path:
+                        return {
+                            "status": "error",
+                            "message": (
+                                f"Dataset '{dataset_name}' not found. "
+                                f"Available datasets can be seen in Data Management."
+                            ),
+                        }
+                    try:
+                        df = pd.read_csv(dataset_path)
+                        logger.info(f"Loaded dataset {dataset_path} with shape {df.shape}")
+                    except Exception as e:
+                        return {"status": "error", "message": f"Could not read dataset: {str(e)}"}
+                else:
+                    # No explicit dataset: use every feature file for the mode.
+                    # Hardcoding one dated filename meant training silently
+                    # depended on whichever capture happened to be newest, and
+                    # failed whenever that one file had too few rows even with
+                    # hundreds of rows available elsewhere.
+                    try:
+                        df = self.storage.load_training_data(mode=mode)
+                    except Exception as e:
+                        logger.warning("load_training_data failed (%s); falling back to CSVs", e)
+                        frames = []
+                        for path in sorted(Path("data/features").glob(f"features_*_{mode}.csv")):
+                            try:
+                                frames.append(pd.read_csv(path))
+                            except Exception:
+                                continue
+                        df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+                    logger.info(
+                        f"Aggregated {mode} feature data: "
+                        f"{0 if df is None else len(df)} rows"
+                    )
+
+                if df is None or len(df) == 0:
                     return {
                         "status": "error",
-                        "message": f"Dataset '{dataset_name}' not found. Available datasets can be seen in Data Management."
+                        "message": (
+                            f"No {mode} feature data found. Run the monitor first to "
+                            f"collect training data."
+                        ),
                     }
-                
-                # Load real dataset
-                try:
-                    df = pd.read_csv(dataset_path)
-                    logger.info(f"Loaded dataset {dataset_path} with shape {df.shape}")
-                except Exception as e:
-                    return {
-                        "status": "error", 
-                        "message": f"Could not read dataset: {str(e)}"
-                    }
-                
+
                 if len(df) < 10:
                     return {
                         "status": "error",
-                        "message": f"Dataset too small ({len(df)} samples). Need at least 10 samples for training."
+                        "message": (
+                            f"Dataset too small ({len(df)} samples). "
+                            f"Need at least 10 samples for training."
+                        ),
                     }
-                
-                # Prepare feature data
-                # Remove non-numeric columns and target columns
-                feature_columns = []
-                for col in df.columns:
-                    if df[col].dtype in ['float64', 'int64'] and not any(skip in col.lower() for skip in ['timestamp', 'label', 'target', 'class']):
-                        feature_columns.append(col)
-                
+
+                # Prepare feature data. Identifier and label columns are dropped,
+                # and rows with missing values are removed rather than filled with
+                # 0: a zero in an amplitude or PAPR column is a plausible-looking
+                # but fabricated measurement, and StandardScaler would then fit
+                # around it.
+                skip_tokens = ('timestamp', 'label', 'target', 'class', 'id')
+                feature_columns = [
+                    col for col in df.columns
+                    if pd.api.types.is_numeric_dtype(df[col])
+                    and not any(token == col.lower() or token in col.lower()
+                                for token in skip_tokens)
+                ]
+
                 if len(feature_columns) == 0:
                     return {
                         "status": "error",
                         "message": "No numeric feature columns found in dataset"
                     }
-                
-                X = df[feature_columns].fillna(0)  # Fill NaN values
-                
-                # For anomaly detection, we typically train on normal data only
-                # If there's a label column, use it to filter
-                if 'label' in df.columns or 'anomaly' in df.columns:
-                    label_col = 'label' if 'label' in df.columns else 'anomaly'
-                    # Train on normal data (label=0 or False)
-                    normal_mask = (df[label_col] == 0) | (df[label_col] == False)
-                    if normal_mask.sum() > 5:  # Need at least 5 normal samples
-                        X_train = X[normal_mask]
-                        y_true = df[label_col].values
+
+                X = df[feature_columns].dropna()
+
+                if len(X) < 10:
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Only {len(X)} complete rows after dropping incomplete "
+                            f"ones. Need at least 10."
+                        ),
+                    }
+
+                label_col = None
+                for candidate in ('label', 'anomaly'):
+                    if candidate in df.columns:
+                        label_col = candidate
+                        break
+
+                # X and y must be filtered together. Masking X with a label
+                # column taken from an unfiltered frame misaligns the two once
+                # any row has been dropped.
+                if label_col is not None:
+                    usable = df[feature_columns + [label_col]].dropna()
+                    X_all = usable[feature_columns]
+                    y_all = usable[label_col]
+                    normal_mask = y_all == 0
+                    if int(normal_mask.sum()) > 5:
+                        X_train = X_all[normal_mask]
+                        y_true = y_all[normal_mask].values
                     else:
-                        X_train = X
-                        y_true = None
+                        X_train = X_all
+                        y_true = y_all.values
                 else:
                     X_train = X
                     y_true = None
@@ -742,7 +928,14 @@ class SpectrumAlertWebApp:
                 }
                 
                 model = None
-                
+
+                # Models go in models/, matching where /api/model/deploy and
+                # /api/model/status look for them. Training previously wrote to
+                # the current working directory, so a freshly trained model was
+                # invisible to every other endpoint and to the CLI.
+                models_dir = Path("models")
+                models_dir.mkdir(parents=True, exist_ok=True)
+
                 if model_type == "isolation_forest":
                     model = IsolationForest(
                         contamination=contamination,
@@ -750,12 +943,12 @@ class SpectrumAlertWebApp:
                         n_estimators=100
                     )
                     model.fit(X_scaled)
-                    model_filename = "anomaly_detection_model_lite.pkl"
+                    model_filename = str(models_dir / "anomaly_detection_model_lite.pkl")
                     
                 elif model_type == "one_class_svm":
                     model = OneClassSVM(nu=contamination, kernel='rbf', gamma='auto')
                     model.fit(X_scaled)
-                    model_filename = "one_class_svm_model_lite.pkl"
+                    model_filename = str(models_dir / "one_class_svm_model_lite.pkl")
                     
                 elif model_type == "autoencoder":
                     # Simple neural network autoencoder
@@ -766,7 +959,7 @@ class SpectrumAlertWebApp:
                         random_state=42
                     )
                     model.fit(X_scaled, X_scaled)  # Autoencoder learns to reconstruct input
-                    model_filename = "autoencoder_model_lite.pkl"
+                    model_filename = str(models_dir / "autoencoder_model_lite.pkl")
                     
                 else:
                     return {
@@ -798,7 +991,7 @@ class SpectrumAlertWebApp:
                     "model_type": model_type,
                     "training_config": training_config,
                     "dataset_info": {
-                        "filename": dataset_name,
+                        "filename": dataset_name or f"all {mode} feature files",
                         "samples": len(X_train),
                         "features": len(feature_columns)
                     }
@@ -845,33 +1038,30 @@ class SpectrumAlertWebApp:
 
         @self.app.post("/api/model/test")
         async def test_model(config: dict = None):
-            """Test the current model"""
+            """Evaluate the latest trained model on real feature data"""
             try:
-                from spectrum_alert.application.use_cases.model_training import ModelTrainingUseCase
-                from spectrum_alert.core.services.feature_extraction import FeatureExtractor
-                from spectrum_alert.infrastructure.storage import DataStorage
-                
                 test_config = config or {
                     "lite_mode": True,
                     "test_size": 0.2,
                     "random_state": 42
                 }
-                
-                # Initialize testing components
-                feature_extractor = FeatureExtractor(lite_mode=test_config.get("lite_mode", True))
-                storage = DataStorage()
-                trainer = ModelTrainingUseCase(storage)
-                
-                # Run model evaluation
-                results = await self._run_model_test(trainer, test_config)
-                
+
+                results = await self._run_model_test(test_config)
+
                 return {
                     "status": "success",
                     "message": "Model testing completed",
                     "results": results,
                     "config": test_config
                 }
-                
+
+            except ValueError as e:
+                # Expected operator conditions (no model, no data, wrong
+                # columns) — report them plainly, not as a server fault.
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
             except Exception as e:
                 logger.error(f"Failed to test model: {e}")
                 return {
@@ -1180,7 +1370,12 @@ class SpectrumAlertWebApp:
                     center_freq = collection_config.get("center_frequency", 433e6)
                     logger.info(f"Collecting data at center frequency: {center_freq/1e6:.3f} MHz for {duration_seconds/60:.1f} minutes")
                     
-                    with sdr.safe_operation():
+                    safe_op = getattr(sdr, "safe_operation", None)
+                    ctx = safe_op() if callable(safe_op) else None
+                    if ctx is None:
+                        from contextlib import nullcontext
+                        ctx = nullcontext()
+                    with ctx:
                         spectrum_data = monitoring_use_case.capture_spectrum_data(
                             frequency=center_freq,
                             sample_rate=collection_config.get("sample_rate", 2e6),
@@ -1207,36 +1402,20 @@ class SpectrumAlertWebApp:
                     
                 except ImportError as e:
                     logger.warning(f"SDR components not available: {e}")
-                    # Fall back to mock data collection for testing
+                    # No mock capture: a fake success here would hand the
+                    # training pipeline IDs that point at nothing.
                     return {
-                        "status": "success",
-                        "message": f"Data collection completed (mock mode - SDR not available) - {duration_seconds/60:.1f} minutes simulated",
+                        "status": "error",
+                        "message": f"SDR components not available: {str(e)}",
                         "config": collection_config,
-                        "data": {
-                            "spectrum_data_id": "mock-" + str(datetime.now().timestamp()),
-                            "frequency_hz": collection_config.get("center_frequency", 433e6),
-                            "sample_count": 2048,
-                            "duration_seconds": duration_seconds,
-                            "timestamp": datetime.now().isoformat()
-                        },
-                        "estimated_completion": datetime.now().isoformat()
                     }
-                    
+
                 except Exception as sdr_error:
                     logger.warning(f"SDR collection failed: {sdr_error}")
-                    # Fall back to mock mode if SDR fails
                     return {
-                        "status": "success",
-                        "message": f"Data collection completed (mock mode - {str(sdr_error)}) - {duration_seconds/60:.1f} minutes simulated",
+                        "status": "error",
+                        "message": f"Data collection failed: {str(sdr_error)}",
                         "config": collection_config,
-                        "data": {
-                            "spectrum_data_id": "mock-error-" + str(datetime.now().timestamp()),
-                            "frequency_hz": collection_config.get("center_frequency", 433e6),
-                            "sample_count": 2048,
-                            "duration_seconds": duration_seconds,
-                            "timestamp": datetime.now().isoformat()
-                        },
-                        "estimated_completion": datetime.now().isoformat()
                     }
                 
             except Exception as e:
@@ -1793,7 +1972,28 @@ class SpectrumAlertWebApp:
                         "frequency_distribution": []
                     }
                 }
-    
+
+        # Registered with the routes at construction time. It previously sat
+        # after a stray dedent inside _run_model_test, so the SDR was only
+        # released on shutdown if /api/model/test happened to have been called.
+        @self.app.on_event("shutdown")
+        async def shutdown_event():
+            """Clean up resources on shutdown"""
+            try:
+                logger.info("Shutting down SpectrumAlert web application...")
+                self.monitoring_active = False
+
+                # Close SDR device if it exists
+                if hasattr(self, 'monitoring_service') and hasattr(self.monitoring_service, 'sdr'):
+                    try:
+                        self.monitoring_service.sdr.close()
+                        logger.info("SDR device closed during shutdown")
+                    except Exception as e:
+                        logger.warning(f"Error closing SDR during shutdown: {e}")
+
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+
     async def _get_spectrum_analysis(self, frequency_range: str = "144-146") -> Dict[str, Any]:
         """Get spectrum analysis data from real RTL-SDR captures"""
         # Set default center frequency
@@ -1852,10 +2052,18 @@ class SpectrumAlertWebApp:
             with open(latest_file, 'r') as f:
                 spectrum_data = json.load(f)
             
-            # Extract I/Q samples from real RTL-SDR data
-            samples_real = np.array(spectrum_data.get('samples_real', []))
-            samples_imag = np.array(spectrum_data.get('samples_imag', []))
-            
+            # Extract I/Q samples. Both schemas are accepted: the current writer emits
+            # i_samples/q_samples while the 706 archived files use
+            # samples_real/samples_imag. Reading only the legacy keys meant every
+            # freshly written file reported "No I/Q samples in data file", while
+            # the storage layer could not read any of the legacy ones.
+            if 'i_samples' in spectrum_data:
+                samples_real = np.array(spectrum_data.get('i_samples', []))
+                samples_imag = np.array(spectrum_data.get('q_samples', []))
+            else:
+                samples_real = np.array(spectrum_data.get('samples_real', []))
+                samples_imag = np.array(spectrum_data.get('samples_imag', []))
+
             if len(samples_real) == 0 or len(samples_imag) == 0:
                 return {
                     "frequencies": [],
@@ -1888,39 +2096,44 @@ class SpectrumAlertWebApp:
                 return_onesided=False
             )
             
-            # Convert to dBm (assuming 50 ohm impedance)
-            psd_dbm = 10 * np.log10(psd + 1e-12) + 30  # Add 30 dBm for conversion
+            # Convert to dBFS. A "+30 dBm for a 50 ohm impedance" offset is not a
+            # calibration: it invents an absolute reference the dongle does not
+            # have, so readings were labelled dBm while being meaningless.
+            psd_dbfs = 10 * np.log10(psd + 1e-12)
             
             # Shift frequencies to actual RF frequencies
             rf_frequencies = frequencies + center_freq
             
             # Find peak frequencies (signals above background)
-            background_level = np.median(psd_dbm)
+            # Noise floor from the quietest 15% rather than the median, so a
+            # wideband signal does not inflate its own background.
+            background_level = float(np.percentile(psd_dbfs, 15))
             threshold = background_level + 6  # 6 dB above background
-            peaks, _ = signal.find_peaks(psd_dbm, height=threshold, distance=10)
+            peaks, _ = signal.find_peaks(psd_dbfs, height=threshold, distance=10)
             
             peak_frequencies = []
             for peak_idx in peaks:
                 peak_frequencies.append({
                     "frequency": float(rf_frequencies[peak_idx]),
-                    "power": float(psd_dbm[peak_idx]),
+                    "power_dbfs": float(psd_dbfs[peak_idx]),
                     "frequency_mhz": float(rf_frequencies[peak_idx] / 1e6)
                 })
             
             # Calculate overall signal strength
-            signal_strength = float(np.max(psd_dbm))
+            signal_strength = float(np.max(psd_dbfs))
             bandwidth = float(sample_rate)
             
             # Prepare data for frontend (downsample for web display)
             downsample_factor = max(1, len(frequencies) // 512)  # Max 512 points for web
             freq_display = rf_frequencies[::downsample_factor] / 1e6  # Convert to MHz
-            psd_display = psd_dbm[::downsample_factor]
+            psd_display = psd_dbfs[::downsample_factor]
             
             return {
                 "frequencies": freq_display.tolist(),
                 "power_spectrum": psd_display.tolist(),
                 "peak_frequencies": peak_frequencies,
                 "signal_strength": signal_strength,
+                "units": "dBFS",
                 "bandwidth": bandwidth,
                 "center_frequency": float(center_freq),
                 "total_samples": len(complex_samples),
@@ -2044,42 +2257,77 @@ class SpectrumAlertWebApp:
             
             while self.monitoring_active:
                 try:
-                    # Configure SDR
+                    # A receiver captures one contiguous window, so the tuning
+                    # point is an explicit centre frequency. It wins when given;
+                    # otherwise a start-end band collapses to its midpoint for
+                    # backwards compatibility. Pretending to scan a whole band
+                    # the dongle cannot see is what produced alerts "on
+                    # frequencies not being monitored".
                     frequency_range = config.get("frequency_range", "88-108")
-                    start_freq, end_freq = map(float, frequency_range.split("-"))
-                    start_freq *= 1e6  # Convert to Hz
-                    end_freq *= 1e6
-                    
+                    try:
+                        start_freq, end_freq = map(float, frequency_range.split("-"))
+                        start_freq *= 1e6  # Convert to Hz
+                        end_freq *= 1e6
+                    except (ValueError, AttributeError):
+                        start_freq, end_freq = 88e6, 108e6
+
                     sample_rate = config.get("sample_rate", 2048000)
                     gain = config.get("gain", 20)
-                    
+
+                    if config.get("center_freq") is not None:
+                        center_freq = float(config["center_freq"]) * 1e6
+                    else:
+                        center_freq = (start_freq + end_freq) / 2
+
                     # Configure SDR (don't open again if already open)
                     if not hasattr(sdr, '_is_open') or not sdr._is_open:
                         sdr.open()
                         logger.info("SDR device opened for monitoring")
                     
                     sdr.set_sample_rate(sample_rate)
-                    sdr.set_center_freq((start_freq + end_freq) / 2)
+                    sdr.set_center_freq(center_freq)
                     sdr.set_gain(gain)
-                    
-                    # Collect samples
-                    samples = sdr.read_samples(1024 * 1024)  # 1M samples
-                    
+
+                    # The RTL2832 snaps to the nearest supported rate. Use the
+                    # rate the device actually applied for the frequency axis,
+                    # otherwise a request the hardware rounded shifts every bin.
+                    actual_rate = float(getattr(sdr, "sample_rate", 0) or sample_rate)
+                    window_start_hz = center_freq - actual_rate / 2
+                    window_end_hz = center_freq + actual_rate / 2
+                    self.monitored_window_hz = [window_start_hz, window_end_hz]
+                    self.monitoring_center_hz = center_freq
+                    self.monitoring_span_hz = actual_rate
+
+                    # Collect samples.
+                    #
+                    # read_samples blocks for hundreds of milliseconds and this
+                    # runs in the event loop, so the whole server — including
+                    # every WebSocket push — stalled for the duration of each
+                    # capture. Hand it to a thread.
+                    #
+                    # 1M complex samples is also 16 MB per iteration and the
+                    # detector only uses an FFT window of it; 256k is ample for a
+                    # Welch estimate and cuts the transfer by 4x.
+                    samples = await asyncio.to_thread(sdr.read_samples, 256 * 1024)
+
                     # Process spectrum data
                     import numpy as np
                     from scipy import signal
-                    
-                    # Calculate power spectrum
+
+                    # Welch (averaged, overlapped) rather than a single
+                    # periodogram: variance per bin drops sharply for the same
+                    # data, which is what makes a fixed threshold stable.
                     frequencies, power_spectrum = signal.welch(
-                        samples, fs=sample_rate, nperseg=1024
+                        samples, fs=actual_rate, nperseg=1024
                     )
-                    
+
                     # Convert to absolute frequencies
-                    center_freq = (start_freq + end_freq) / 2
                     frequencies = frequencies + center_freq
-                    
-                    # Convert power to dBm
-                    power_dbm = 10 * np.log10(power_spectrum + 1e-12)
+
+                    # Convert to dBFS. This is NOT dBm: an RTL-SDR has no
+                    # calibrated reference. It was previously labelled "power_dbm"
+                    # and pushed over the WebSocket as if it were absolute.
+                    power_dbfs = 10 * np.log10(power_spectrum + 1e-12)
                     
                     # Create SpectrumData object for anomaly detection
                     from spectrum_alert.core.domain.models import SpectrumData
@@ -2089,12 +2337,13 @@ class SpectrumAlertWebApp:
                     spectrum_data = SpectrumData(
                         id=str(uuid.uuid4()),
                         frequency_hz=center_freq,
-                        sample_rate_hz=sample_rate,
+                        sample_rate_hz=actual_rate,
                         gain_db=gain,
                         samples=samples.tolist(),
-                        duration_seconds=len(samples) / sample_rate,
+                        duration_seconds=len(samples) / actual_rate,
                         timestamp=datetime.utcnow(),
-                        power_spectrum=power_dbm.tolist()
+                        power_spectrum=power_dbfs.tolist(),
+                        sample_rate_actual_hz=actual_rate,
                     )
                     
                     # Run anomaly detection
@@ -2109,7 +2358,13 @@ class SpectrumAlertWebApp:
                             "type": "anomaly_detected",
                             "data": {
                                 "frequency_mhz": anomaly_result.frequency_hz / 1e6,  # Convert Hz to MHz
-                                "power_dbm": anomaly_result.metadata.get("power_dbm", 0),  # Get from metadata
+                                # dBFS, not dBm. metadata["peak_dbfs"] is what the
+                                # detector records; the old lookup of
+                                # metadata["power_dbm"] never matched anything and
+                                # always reported 0.
+                                "power_dbfs": anomaly_result.metadata.get("peak_dbfs"),
+                                "noise_floor_dbfs": anomaly_result.metadata.get("noise_floor_dbfs"),
+                                "snr_db": anomaly_result.metadata.get("snr_db"),
                                 "anomaly_score": anomaly_result.confidence_score,  # Use confidence_score
                                 "severity": anomaly_result.severity,
                                 "timestamp": anomaly_result.timestamp.isoformat(),
@@ -2118,15 +2373,32 @@ class SpectrumAlertWebApp:
                             }
                         })
                     
+                    # Downsample across the whole span for the web. Slicing the
+                    # first 100 bins (the old behaviour) sent only the lowest
+                    # frequencies and dropped the peak, so the chart looked
+                    # nothing like the detection.
+                    step = max(1, len(frequencies) // 256)
+                    freq_display = (frequencies[::step] / 1e6).tolist()
+                    power_display = power_dbfs[::step].tolist()
+
                     # Broadcast spectrum update
                     await self._broadcast_to_websockets({
                         "type": "spectrum_update",
                         "data": {
-                            "frequencies": (frequencies / 1e6).tolist()[:100],  # Limit data
-                            "powers": power_dbm.tolist()[:100],
-                            "peak_frequency": float(frequencies[np.argmax(power_dbm)] / 1e6),
-                            "avg_power": float(np.mean(power_dbm)),
-                            "snr": float(np.max(power_dbm) - np.mean(power_dbm))
+                            "frequencies_mhz": freq_display,
+                            "powers_dbfs": power_display,
+                            # Unambiguous units: these are dBFS, not dBm.
+                            "units": "dBFS",
+                            "peak_frequency_mhz": float(frequencies[np.argmax(power_dbfs)] / 1e6),
+                            "avg_power_dbfs": float(np.mean(power_dbfs)),
+                            "noise_floor_dbfs": float(np.percentile(power_dbfs, 15)),
+                            "snr_db": float(np.max(power_dbfs) - np.percentile(power_dbfs, 15)),
+                            # The real window the receiver is listening to, so
+                            # the UI can label the chart and scope alerts.
+                            "center_freq_mhz": float(center_freq / 1e6),
+                            "span_mhz": float(actual_rate / 1e6),
+                            "window_start_mhz": float(window_start_hz / 1e6),
+                            "window_end_mhz": float(window_end_hz / 1e6),
                         }
                     })
                     
@@ -2166,131 +2438,119 @@ class SpectrumAlertWebApp:
         for websocket in disconnected:
             self.connections.remove(websocket)
 
-    async def _run_training_task(self, trainer, config):
-        """Run model training in background"""
-        try:
-            self.training_progress = {"stage": "initializing", "progress": 0}
-            logger.info("Starting model training...")
-            
-            # Broadcast training start
-            await self._broadcast_to_websockets({
-                "type": "training_update",
-                "data": {"stage": "started", "progress": 0, "message": "Training started"}
-            })
-            
-            # Data preparation phase
-            self.training_progress = {"stage": "data_preparation", "progress": 10}
-            await self._broadcast_to_websockets({
-                "type": "training_update", 
-                "data": self.training_progress
-            })
-            
-            # Load and prepare data
-            data_dir = Path("data")
-            if not data_dir.exists():
-                raise ValueError("No training data found. Please collect data first.")
-            
-            # Feature extraction phase
-            self.training_progress = {"stage": "feature_extraction", "progress": 30}
-            await self._broadcast_to_websockets({
-                "type": "training_update",
-                "data": self.training_progress
-            })
-            
-            # Simulate training process with progress updates
-            training_stages = [
-                ("loading_data", 40),
-                ("preprocessing", 50),
-                ("model_training", 70),
-                ("validation", 85),
-                ("saving_model", 95)
-            ]
-            
-            for stage, progress in training_stages:
-                self.training_progress = {"stage": stage, "progress": progress}
-                await self._broadcast_to_websockets({
-                    "type": "training_update",
-                    "data": self.training_progress
-                })
-                await asyncio.sleep(2)  # Simulate work
-            
-            # Complete training
-            self.training_progress = {"stage": "completed", "progress": 100}
-            self.last_training_time = datetime.now().isoformat()
-            
-            await self._broadcast_to_websockets({
-                "type": "training_update",
-                "data": {
-                    "stage": "completed", 
-                    "progress": 100, 
-                    "message": "Training completed successfully",
-                    "accuracy": 0.85,  # Placeholder
-                    "loss": 0.15       # Placeholder
-                }
-            })
-            
-            logger.info("Model training completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Training failed: {e}")
-            self.training_progress = {"stage": "failed", "progress": 0, "error": str(e)}
-            await self._broadcast_to_websockets({
-                "type": "training_update",
-                "data": {"stage": "failed", "error": str(e)}
-            })
-        finally:
-            self.training_active = False
+    async def _run_model_test(self, config):
+        """Evaluate the latest trained model against real feature data.
 
-    async def _run_model_test(self, trainer, config):
-        """Run model testing and return results"""
+        Every reported number comes from predictions over the stored feature
+        files. Labels are used only when the data actually carries them;
+        without labels the response says so instead of inventing metrics.
+        """
+        import time as _time
+        import joblib
+        import pandas as pd
+        import numpy as np
+        from pathlib import Path
+        from sklearn.metrics import (
+            accuracy_score,
+            precision_score,
+            recall_score,
+            f1_score,
+            confusion_matrix,
+        )
+
+        started = _time.monotonic()
+        mode = (config or {}).get("mode", "lite")
+
+        model_files = sorted(
+            Path("models").glob("*.pkl"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not model_files:
+            raise ValueError("No trained model found. Train a model first.")
+
+        model_data = joblib.load(model_files[0])
+        model = model_data.get("model")
+        scaler = model_data.get("scaler")
+        feature_columns = model_data.get("feature_columns") or []
+        if model is None or scaler is None or not feature_columns:
+            raise ValueError(
+                f"{model_files[0].name} does not contain a loadable model."
+            )
+
+        # Same sources as training: aggregated storage first, then the
+        # per-run feature files.
+        df = None
         try:
-            # Simulate model testing
-            test_results = {
-                "accuracy": 0.87,
-                "precision": 0.85,
-                "recall": 0.89,
-                "f1_score": 0.87,
-                "confusion_matrix": [[85, 15], [12, 88]],
-                "test_samples": 200,
-                "training_time": "2.5 minutes",
-                "feature_importance": [
-                    {"feature": "frequency_deviation", "importance": 0.35},
-                    {"feature": "power_variation", "importance": 0.28},
-                    {"feature": "bandwidth_anomaly", "importance": 0.22},
-                    {"feature": "spectral_entropy", "importance": 0.15}
-                ]
-            }
-            
-            # Broadcast test results
-            await self._broadcast_to_websockets({
-                "type": "model_test_complete",
-                "data": test_results
-            })
-            
-            return test_results
-            
+            df = self.storage.load_training_data(mode=mode)
         except Exception as e:
-            logger.error(f"Model testing failed: {e}")
-            raise
-    
-        # Add shutdown event handler
-        @self.app.on_event("shutdown")
-        async def shutdown_event():
-            """Clean up resources on shutdown"""
-            try:
-                logger.info("Shutting down SpectrumAlert web application...")
-                self.monitoring_active = False
-                
-                # Close SDR device if it exists
-                if hasattr(self, 'monitoring_service') and hasattr(self.monitoring_service, 'sdr'):
-                    try:
-                        self.monitoring_service.sdr.close()
-                        logger.info("SDR device closed during shutdown")
-                    except Exception as e:
-                        logger.warning(f"Error closing SDR during shutdown: {e}")
-                        
-            except Exception as e:
-                logger.error(f"Error during shutdown: {e}")
+            logger.warning("load_training_data failed (%s); falling back to CSVs", e)
+            frames = []
+            for path in sorted(Path("data/features").glob(f"features_*_{mode}.csv")):
+                try:
+                    frames.append(pd.read_csv(path))
+                except Exception:
+                    continue
+            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+        if df is None or len(df) == 0:
+            raise ValueError(f"No {mode} feature data found to evaluate against.")
+
+        missing = [c for c in feature_columns if c not in df.columns]
+        if missing:
+            shown = ", ".join(missing[:8]) + ("…" if len(missing) > 8 else "")
+            raise ValueError(f"Evaluation data is missing model features: {shown}")
+
+        label_col = next(
+            (c for c in ("label", "anomaly", "target", "class") if c in df.columns),
+            None,
+        )
+        rows = df[feature_columns + ([label_col] if label_col else [])].dropna()
+        if len(rows) < 10:
+            raise ValueError(
+                f"Only {len(rows)} complete evaluation rows; need at least 10."
+            )
+
+        predicted = np.asarray(
+            model.predict(scaler.transform(rows[feature_columns]))
+        )
+        metrics = {"samples": int(len(rows))}
+
+        # IsolationForest / OneClassSVM answer -1 (anomaly) or 1 (normal).
+        # A regressor answers reconstructions, which are not a verdict.
+        if predicted.ndim == 1 and set(np.unique(predicted)) <= {-1.0, 1.0}:
+            flagged = (predicted == -1).astype(int)
+            metrics["anomalies_flagged"] = int(flagged.sum())
+            if label_col is not None:
+                y_true = rows[label_col].astype(int).values
+                metrics.update({
+                    "accuracy": float(accuracy_score(y_true, flagged)),
+                    "precision": float(
+                        precision_score(y_true, flagged, zero_division=0)
+                    ),
+                    "recall": float(recall_score(y_true, flagged, zero_division=0)),
+                    "f1_score": float(f1_score(y_true, flagged, zero_division=0)),
+                    "confusion_matrix": confusion_matrix(y_true, flagged).tolist(),
+                    "labelled": True,
+                })
+            else:
+                metrics["labelled"] = False
+        else:
+            metrics["labelled"] = False
+
+        metrics["training_time"] = round(_time.monotonic() - started, 3)
+
+        results = {
+            "model_file": model_files[0].name,
+            "model_type": model_data.get("model_type") or "unknown",
+            "metrics": metrics,
+        }
+
+        await self._broadcast_to_websockets({
+            "type": "model_test_complete",
+            "data": {"results": results},
+        })
+        return results
 
     def get_app(self) -> FastAPI:
         """Get the FastAPI application instance"""

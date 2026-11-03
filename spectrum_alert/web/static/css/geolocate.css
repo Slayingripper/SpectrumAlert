@@ -1,0 +1,488 @@
+/* Geolocation page: waterfall, map, receiver roster, calibration, PMR grid. */
+
+:root {
+    /* Workspace surfaces now resolve from the shared palette, so the workspace
+       and the dashboard flip themes from one set of tokens instead of keeping
+       a parallel copy that drifted out of sync. */
+    --sa-bg: var(--bg-primary);
+    --sa-panel: var(--bg-secondary);
+    --sa-panel-2: var(--bg-tertiary);
+    --sa-border: var(--border-color);
+    --sa-text: var(--text-primary);
+    --sa-muted: var(--text-muted);
+    --sa-accent: var(--accent);
+    --sa-good: var(--success);
+    --sa-fair: var(--warning);
+    --sa-poor: var(--danger);
+    --sa-floor: var(--bg-primary);
+}
+
+/* The theme toggle sets data-theme on <html>. The light values now resolve
+   through the shared palette above, but the block is kept explicit so the
+   workspace's theme support is auditable on its own (and asserted by the UI
+   contract tests) instead of being an implicit consequence of another file. */
+html[data-theme="light"] {
+    --sa-bg: var(--bg-primary);
+    --sa-panel: var(--bg-secondary);
+    --sa-panel-2: var(--bg-tertiary);
+    --sa-border: var(--border-color);
+    --sa-text: var(--text-primary);
+    --sa-muted: var(--text-muted);
+    --sa-accent: var(--accent);
+    --sa-good: var(--success);
+    --sa-fair: var(--warning);
+    --sa-poor: var(--danger);
+    --sa-floor: var(--bg-primary);
+}
+
+* { box-sizing: border-box; }
+
+body.sa-body {
+    margin: 0;
+    background: var(--sa-bg);
+    color: var(--sa-text);
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+    font-size: 14px;
+}
+
+/* Fluid to the viewport edges. The old max-width: 1500px capped the whole
+   page and left wide monitors with empty margins on both sides. */
+.sa-wrap { width: 100%; max-width: none; margin: 0; padding: 12px 14px 20px; }
+
+.sa-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--sa-border);
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+}
+
+.sa-header h1 { font-size: 20px; letter-spacing: 2px; margin: 0; color: var(--sa-accent); }
+.sa-header nav { display: flex; gap: 12px; }
+.sa-header nav a { color: var(--sa-muted); text-decoration: none; font-size: 13px; }
+.sa-header nav a:hover { color: var(--sa-accent); }
+
+/* Layout is Bootstrap's grid (row/col-* on .sa-layout). These rules only cover
+   what the grid cannot: the rail's own width, making both columns the same
+   height, and letting the map grow into whatever space is left. */
+.sa-layout { align-items: stretch; }
+
+.sa-rail,
+.sa-workspace { min-width: 0; }
+
+/* The rail is sized here rather than left to `col-xxl-2`, which resolved to
+   250px on a 1600px screen -- too narrow for the receiver form, which is why
+   it stacked a field per line and the two calibration buttons refused to sit
+   side by side. */
+.sa-rail {
+    flex: 0 0 clamp(268px, 22vw, 360px);
+    width: clamp(268px, 22vw, 360px);
+}
+
+.sa-workspace { flex: 1 1 0%; }
+
+/* Below the xl breakpoint the rail goes full width above the analysis. */
+@media (max-width: 1199.98px) {
+    .sa-rail,
+    .sa-workspace {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+}
+
+@media (min-width: 1400px) {
+    .sa-workspace > .sa-panel:first-child { margin-bottom: 0; }
+    /* Sticky rail: the roster stays reachable while the map scrolls. */
+    .sa-rail { position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto; }
+}
+
+@media (min-width: 1200px) {
+    /* Side-by-side Locate and Identify should end level with each other. */
+    .sa-merged > div { display: flex; flex-direction: column; }
+    .sa-merged .sa-panel { flex: 1 1 auto; display: flex; flex-direction: column; }
+}
+
+/* Bootstrap's reboot sets a 1rem body margin and a sans-serif stack; this page
+   is a dense monospace operator tool, so both are restored explicitly. */
+body.sa-body { margin: 0; }
+
+.sa-panel {
+    background: var(--sa-panel);
+    border: 1px solid var(--sa-border);
+    border-radius: var(--sa-tile-radius);
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+/* Sentence case, like the dashboard's panel headings, and on the dashboard's
+   panel-heading scale: the workspace used to render its own titles at 13px /
+   500 / 1.5px tracking while every dashboard panel used 13.6px / 600, so the
+   two halves of the same app never matched. */
+.sa-panel > h2 {
+    font-size: var(--sa-h2);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-primary);
+    margin: 0 0 var(--sa-space-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--sa-space-2);
+    flex-wrap: wrap;
+    min-height: var(--sa-btn-height);
+}
+
+.sa-panel > h2 > span:first-child { min-width: 0; }
+
+.sa-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.sa-field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 90px; min-width: 0; }
+
+/* A labelled field group on a real grid.
+
+   `.sa-row` wraps flex children against their own flex-basis, so every row of
+   a form negotiated its own widths independently and the same form came out
+   with five different field widths. One grid means every field in the form
+   shares the same tracks, and `sa-field--wide` takes the full row.
+
+   auto-fit does the responsive work: the rail is 268-360px and lands on two
+   tracks, the wide analysis column lands on five or six. Empty tracks collapse
+   so the fields always fill the panel edge to edge. */
+.sa-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 6px 8px;
+    align-items: end;
+}
+
+.sa-form-grid > .sa-field { flex: initial; }
+.sa-form-grid > .sa-field--wide { grid-column: 1 / -1; }
+
+/* A trailing button is not a field; it takes the full row rather than
+   squeezing into the next grid cell beside a half-width input. */
+.sa-form-grid > .sa-btn,
+.sa-form-grid > .sa-icon-btn { grid-column: 1 / -1; }
+
+@media (max-width: 340px) {
+    .sa-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* A button that shares a row equally with its neighbours. `flex: 1` alone does
+   not do it: flex items keep `min-width: auto`, so a button whose label is
+   wider than its share refuses to shrink and wraps onto its own line. */
+.sa-btn--grow { flex: 1 1 0; min-width: 0; }
+
+/* A section label inside a panel. These were inline-styled to 12px, which is a
+   size that appears nowhere else in the app. */
+.sa-subhead-row {
+    margin: var(--sa-space-3) 0 6px;
+    padding-top: var(--sa-space-3);
+    border-top: 1px solid var(--border-color);
+}
+
+.sa-subhead {
+    margin: 0;
+    font-size: var(--sa-label);
+    font-weight: 600;
+    letter-spacing: var(--sa-label-tracking);
+    text-transform: uppercase;
+    color: var(--sa-label-color);
+}
+
+/* Field labels share the dashboard's label scale. The workspace rendered these
+   at 10px uppercase with 1px tracking while the Config tab rendered the same
+   job at 12.8px semibold sentence case -- the same control, two designs. */
+.sa-field label {
+    font-size: var(--sa-label);
+    font-weight: 600;
+    letter-spacing: var(--sa-label-tracking);
+    text-transform: uppercase;
+    color: var(--sa-label-color);
+}
+
+/* The shared control look (size, border, radius, font) comes from
+   design-system.css, which this file loads before. Only the workspace-specific
+   bits are declared here. */
+.sa-btn { cursor: pointer; user-select: none; }
+.sa-btn:hover:not(:disabled) { border-color: var(--border-strong, var(--accent-cyan)); background: var(--bg-raised); color: var(--text-primary); }
+.sa-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.sa-btn.primary { background: var(--sa-accent); border-color: var(--sa-accent); color: var(--on-accent); }
+/* Transparent so the label is measured against the panel behind it. */
+.sa-btn.danger { background: transparent; color: var(--sa-poor); border-color: var(--sa-poor); }
+/* min-height keeps these above the 24px target-size floor; on a phone they
+   get the shared 40px touch target (this file loads after ui-core.css, so the
+   media rule has to live here to win). */
+.sa-btn.tiny { padding: 3px 8px; font-size: 11px; min-height: 24px; }
+@media (max-width: 768px) {
+    .sa-btn.tiny { min-height: var(--sa-touch-target); }
+}
+
+/* The dark-teal primary fill stays dark in light mode, so the light --sa-accent
+   label on it measured 2.7:1. Invert it to a solid teal button instead. */
+html[data-theme="light"] .sa-btn.primary {
+    background: var(--sa-accent);
+    color: #ffffff;
+}
+
+html[data-theme="light"] .sa-btn.primary:hover:not(:disabled) {
+    background: #004f59;
+    color: #ffffff;
+}
+
+/* Waterfall ------------------------------------------------------------ */
+
+.sa-waterfall-wrap {
+    position: relative;
+    background: var(--sa-floor);
+    border: 1px solid var(--sa-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#sa-waterfall { display: block; width: 100%; height: 240px; cursor: crosshair; }
+
+.sa-axis {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 18px;
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 4px;
+    font-size: 10px;
+    color: var(--sa-muted);
+    /* Solid rather than a transparent fade: the labels sit in the upper part
+       of this 18px strip, where a fade would leave them directly over a
+       waterfall trace. 0.88 keeps them readable even over a white trace. */
+    background: rgba(0, 0, 0, 0.88);
+}
+
+/* The waterfall floor is white in light mode, so the scrim and the labels
+   flip with it — a dark scrim over a white plot with #5a6474 labels was
+   1.7:1. */
+html[data-theme="light"] .sa-axis {
+    background: rgba(255, 255, 255, 0.92);
+    color: #10141c;
+}
+
+/* A static readout row: the Picked / Peak / Noise-floor strip under the
+   waterfall and the PMR status line.
+
+   Deliberately NOT `.sa-readout`. That class is the floating crosshair chip in
+   ui-core.css, which is `display: none` until the pointer is over a chart.
+   This file loads after ui-core.css, so the old `display: flex` here forced
+   that chip visible and empty, and it rendered as a stray blue-outlined pill
+   in the corner of every chart on the page. */
+.sa-readout-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--sa-muted);
+    margin-top: 8px;
+    white-space: normal;
+}
+
+.sa-readout-row b { color: var(--sa-text); font-weight: 600; }
+
+/* Map ------------------------------------------------------------------ */
+
+/* The map is the tallest element on the page, so it takes a share of the
+   viewport instead of a fixed 460px, which left the lower half of a large
+   display empty. clamp() keeps it usable on a short screen and stops it
+   ballooning on a very tall one. */
+#sa-map {
+    height: clamp(360px, 56vh, 820px);
+    min-height: 320px;
+    border: 1px solid var(--sa-border);
+    border-radius: 4px;
+    background: #0d1017;
+}
+
+.sa-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--sa-muted); }
+.sa-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+/* Receiver list -------------------------------------------------------- */
+
+.sa-receiver {
+    display: grid;
+    /* `1fr auto` let the action cluster claim its full intrinsic width, which
+       left the text column around 55px wide: "USB 0 - 0.00000, 0.00000" broke
+       one word per line and "no reading yet" stacked into three lines beside
+       four buttons. minmax(0, 1fr) lets the text column shrink first, and the
+       actions wrap under it rather than crushing it. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid var(--sa-border);
+    border-radius: var(--sa-tile-radius);
+    margin-bottom: 6px;
+    background: var(--sa-panel-2);
+}
+
+.sa-receiver.disabled { opacity: 0.45; }
+.sa-receiver .meta { font-size: 11px; color: var(--sa-muted); margin-top: 2px; word-break: break-word; }
+.sa-receiver .actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 6px;
+}
+
+/* Tables --------------------------------------------------------------- */
+
+.sa-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sa-table th, .sa-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--sa-border); }
+.sa-table th:first-child, .sa-table td:first-child { text-align: left; }
+.sa-table th { color: var(--sa-muted); font-weight: 500; text-transform: uppercase; font-size: 10px; }
+
+.sa-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+}
+.sa-badge.good { color: var(--sa-good); }
+.sa-badge.fair { color: var(--sa-fair); }
+.sa-badge.poor { color: var(--sa-poor); }
+.sa-badge.ok { color: var(--sa-good); }
+.sa-badge.fail { color: var(--sa-poor); }
+
+.sa-log {
+    background: #06070a;
+    border: 1px solid var(--sa-border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    max-height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* The log keeps its terminal surface in both themes, so its text must not
+   follow --text-primary: in light mode that is #10141c on #06070a, or 1.1:1.
+   These three are fixed against that near-black surface. */
+.sa-log { color: #d7dde8; }
+.sa-log .warn { color: #ffb020; }
+.sa-log .err { color: #ff8a94; }
+.sa-log .ok { color: #7ee787; }
+
+/* PMR grid ------------------------------------------------------------- */
+
+.sa-pmr-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+@media (max-width: 700px) { .sa-pmr-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.sa-pmr-cell {
+    border: 1px solid var(--sa-border);
+    border-radius: 3px;
+    padding: 5px 3px;
+    text-align: center;
+    font-size: 11px;
+    background: var(--sa-panel-2);
+}
+
+.sa-pmr-cell .ch { color: var(--sa-muted); font-size: 10px; }
+.sa-pmr-cell .dbm { font-size: 13px; font-weight: 600; }
+.sa-pmr-cell.active { background: rgba(70, 180, 80, 0.16); }
+.sa-pmr-cell.tri { background: rgba(217, 164, 65, 0.18); }
+
+.sa-toast-host {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 9999;
+}
+
+.sa-toast {
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    border: 1px solid var(--sa-border);
+    background: var(--sa-panel);
+    max-width: 380px;
+}
+.sa-toast.error { border-color: var(--sa-poor); color: var(--sa-poor); }
+.sa-toast.success { border-color: var(--sa-good); color: var(--sa-good); }
+.sa-toast.info { border-color: var(--sa-accent); color: var(--sa-accent); }
+
+.sa-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+.sa-modal.open { display: flex; }
+.sa-modal .box {
+    background: var(--sa-panel);
+    border: 1px solid var(--sa-border);
+    border-radius: 6px;
+    padding: 18px;
+    min-width: 320px;
+    max-width: 460px;
+}
+
+.sa-hint { font-size: 11px; color: var(--sa-muted); margin-top: 6px; }
+.sa-field-group[hidden] { display: none; }
+/* ------------------------------------------------- dashboard integration ---
+   The workspace is a section of the dashboard rather than a page of its own, so
+   it has to land on the same grid as every other tab. */
+
+/* The workspace used to be wrapped in a framed, padded box of its own, which
+   pushed its panels ~14px to the right of every panel on the Dashboard, Config
+   and Training tabs: the left edge of the UI moved every time the operator
+   changed section. It is now a flush container and inherits the shared gutter,
+   so one left edge runs down the whole app.
+
+   The section heading below carries the separation the frame used to. */
+.sa-section {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+}
+
+.sa-section .sa-header {
+    margin-bottom: var(--sa-space-4);
+}
+
+/* Sentence case, matching every panel heading in the dashboard. The old
+   uppercase transform made this heading read as a different system from the
+   panels it introduces. */
+.sa-section .sa-header h1 {
+    margin: 0;
+    font-size: var(--sa-h3);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+}
+
+.sa-section .sa-header {
+    align-items: flex-start;
+}
+
+/* Panels size to their own content. A percentage height here resolved against
+   the flex/grid track and made the waterfall fill the whole workspace column,
+   which pushed the emitter map and Identify panels past <main> so they landed
+   under the footer. Equal heights for the side-by-side Locate/Identify columns
+   are handled by the .sa-merged flex rules above, not by this height. */
+.sa-section .sa-panel {
+    height: auto;
+}

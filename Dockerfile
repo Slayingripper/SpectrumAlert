@@ -36,13 +36,14 @@ RUN echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", G
 # Switch to non-root user
 USER spectrum
 
-# Expose any ports if needed (for future web interface)
-EXPOSE 8080
+# The dashboard's default port (`spectrum-alert web`), not 8080.
+EXPOSE 8000
 
 # Health check: simple CLI invocation that does not require SDR
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD spectrum-alert version || exit 1
 
-# Default entrypoint and command: run CLI; override CMD with your desired subcommand
+# Default entrypoint and command: serve the dashboard. Override CMD for any
+# other CLI subcommand, e.g. `docker run ... spectrumalert monitor status`.
 ENTRYPOINT ["spectrum-alert"]
-CMD ["monitor", "status"]
+CMD ["web", "--host", "0.0.0.0", "--port", "8000"]

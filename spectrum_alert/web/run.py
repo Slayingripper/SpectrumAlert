@@ -65,5 +65,16 @@ def main():
         logger.error(f"Failed to start web dashboard: {e}")
         sys.exit(1)
 
+def create_app():
+    """Build the ASGI application.
+
+    Exposed so ``uvicorn spectrum_alert.web.run:create_app --factory`` works, and
+    so importing this module does not immediately open the SDR.
+    """
+    from spectrum_alert.web.app import SpectrumAlertWebApp
+
+    return SpectrumAlertWebApp().app
+
+
 if __name__ == "__main__":
     main()

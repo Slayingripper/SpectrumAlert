@@ -1,0 +1,2671 @@
+/* ==========================================================================
+   Design system: one button / control vocabulary
+   ==========================================================================
+   The dashboard grew ~20 ad-hoc button classes (.btn-start, .btn-save,
+   .btn-refresh, .sa-btn, .sa-icon-btn, .sa-link-btn, .panel-toggle,
+   .tab-btn, .nav-tab, .btn-primary ...), each with its own padding, radius,
+   border and hover treatment. That is why the panels read as a collection of
+   unrelated widgets rather than one console.
+
+   Everything now derives from a single base -- `.sa-btn` -- with variants for
+   intent (primary / success / danger / ghost) and size. Legacy class names are
+   kept as aliases in the SAME selector list so existing markup, JS and the
+   ui-contract tests keep working while inheriting the shared look.
+
+   Loaded after cyberpunk.css so these rules win on source order.
+   ========================================================================== */
+
+/* ---------------------------------------------------------- button tokens - */
+
+:root {
+    /* One height for every control. Anything sized by its own class looked
+       like a different product next to it. */
+    --sa-btn-height: 36px;
+    --sa-btn-height-sm: 30px;
+    --sa-btn-height-lg: 42px;
+    --sa-btn-radius: 8px;
+    --sa-btn-pad-x: 14px;
+    --sa-btn-font: 0.8125rem;
+    --sa-btn-gap: 7px;
+    --sa-btn-transition: background-color 140ms ease, border-color 140ms ease,
+        color 140ms ease, box-shadow 140ms ease;
+
+    /* Neutral control surface. Dark uses a raised inset; light uses a clean
+       white button with a hairline border. */
+    --sa-control-bg: #1a2431;
+    --sa-control-bg-hover: #23303f;
+
+    /* Filled-CTA colours, kept separate from the data-severity colours so a
+       "Save" button never inherits the critical-red used for an alert count. */
+    --sa-btn-primary-bg: var(--accent);
+    --sa-btn-primary-bg-hover: color-mix(in srgb, var(--accent) 84%, #000);
+    --sa-btn-primary-fg: #ffffff;
+
+    --sa-btn-success-bg: #1f7a4d;
+    --sa-btn-success-bg-hover: #196640;
+    --sa-btn-success-fg: #ffffff;
+
+    --sa-btn-danger-bg: #b3363f;
+    --sa-btn-danger-bg-hover: #972b33;
+    --sa-btn-danger-fg: #ffffff;
+}
+
+/* ------------------------------------------------------------ button base - */
+
+/* One selector list = one visual language. Every button in the app is in here,
+   including the legacy names that predate the design system. */
+.sa-btn,
+.sa-icon-btn,
+.sa-link-btn,
+.panel-toggle,
+.panel-controls button,
+.panel-header button,
+.btn-refresh,
+.btn-toggle,
+.btn-clear,
+.btn-retrain,
+.btn-save,
+.btn-start,
+.btn-stop,
+.btn-train,
+.btn-test,
+.btn-deploy,
+.btn-collect,
+.btn-browse,
+.btn-analyze,
+.btn-primary,
+.btn-secondary,
+.tab-btn,
+.alert-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sa-btn-gap);
+    appearance: none;
+    -webkit-appearance: none;
+    font: inherit;
+    font-family: var(--sa-font-sans);
+    font-size: var(--sa-btn-font);
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+    min-height: var(--sa-btn-height);
+    padding: 0 var(--sa-btn-pad-x);
+    border-radius: var(--sa-btn-radius);
+    border: 1px solid var(--border-color);
+    background: var(--sa-control-bg);
+    color: var(--text-primary);
+    transition: var(--sa-btn-transition);
+}
+
+/* Hover: lift the border and surface, do not recolour the label. */
+.sa-btn:hover,
+.sa-icon-btn:hover,
+.panel-toggle:hover,
+.panel-controls button:hover,
+.btn-refresh:hover,
+.btn-toggle:hover,
+.btn-clear:hover,
+.btn-retrain:hover,
+.btn-save:hover,
+.btn-collect:hover,
+.btn-browse:hover,
+.btn-analyze:hover,
+.btn-test:hover,
+.btn-secondary:hover,
+.tab-btn:hover {
+    background: var(--sa-control-bg-hover);
+    border-color: var(--border-strong, var(--accent-cyan));
+    color: var(--text-primary);
+}
+
+/* Active / pressed. */
+.sa-btn:active,
+.panel-toggle:active,
+.panel-controls button:active,
+.btn-start:active,
+.btn-stop:active {
+    transform: translateY(1px);
+}
+
+.sa-btn:focus-visible,
+.sa-icon-btn:focus-visible,
+.panel-toggle:focus-visible,
+.panel-controls button:focus-visible,
+.btn-refresh:focus-visible,
+.btn-toggle:focus-visible,
+.btn-clear:focus-visible,
+.btn-retrain:focus-visible,
+.btn-save:focus-visible,
+.btn-start:focus-visible,
+.btn-stop:focus-visible,
+.btn-train:focus-visible,
+.btn-test:focus-visible,
+.btn-deploy:focus-visible,
+.btn-collect:focus-visible,
+.btn-browse:focus-visible,
+.btn-analyze:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.tab-btn:focus-visible,
+.sa-link-btn:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+
+/* Disabled: every disabled control looks the same and stops listening. */
+.sa-btn:disabled,
+.sa-btn[aria-disabled='true'],
+.panel-controls button:disabled,
+.btn-start:disabled,
+.btn-stop:disabled,
+.btn-save:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.tab-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+    transform: none;
+}
+
+/* -------------------------------------------------------------- variants -- */
+
+/* Primary call to action: the one filled accent button a panel should show. */
+.sa-btn--primary,
+.btn-primary,
+.panel-controls .btn-primary {
+    background: var(--sa-btn-primary-bg);
+    border-color: var(--sa-btn-primary-bg);
+    color: var(--sa-btn-primary-fg);
+}
+
+.sa-btn--primary:hover,
+.btn-primary:hover {
+    background: var(--sa-btn-primary-bg-hover);
+    border-color: var(--sa-btn-primary-bg-hover);
+    color: var(--sa-btn-primary-fg);
+}
+
+/* Start / deploy / train: a confirmed, state-changing action. */
+.sa-btn--success,
+.btn-start,
+.btn-train,
+.btn-deploy {
+    background: var(--sa-btn-success-bg);
+    border-color: var(--sa-btn-success-bg);
+    color: var(--sa-btn-success-fg);
+}
+
+.sa-btn--success:hover,
+.btn-start:hover,
+.btn-train:hover,
+.btn-deploy:hover {
+    background: var(--sa-btn-success-bg-hover);
+    border-color: var(--sa-btn-success-bg-hover);
+    color: var(--sa-btn-success-fg);
+}
+
+/* Stop / clear: destructive. */
+.sa-btn--danger,
+.btn-stop,
+.sa-btn--danger-ghost,
+.btn-clear {
+    background: var(--sa-btn-danger-bg);
+    border-color: var(--sa-btn-danger-bg);
+    color: var(--sa-btn-danger-fg);
+}
+
+.sa-btn--danger:hover,
+.btn-stop:hover {
+    background: var(--sa-btn-danger-bg-hover);
+    border-color: var(--sa-btn-danger-bg-hover);
+    color: var(--sa-btn-danger-fg);
+}
+
+/* Destructive but reversible / low emphasis: outline only. */
+.sa-btn--danger-ghost,
+.btn-clear {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--danger);
+}
+
+.sa-btn--danger-ghost:hover,
+.btn-clear:hover {
+    background: rgba(179, 32, 43, 0.08);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Ghost: no fill until hover. Used for in-panel utilities. */
+.sa-btn--ghost {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.sa-btn--ghost:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+/* Toggle in the on state reads as selected, not as a second CTA. */
+.sa-btn--toggle,
+.btn-toggle {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.sa-btn--toggle[aria-pressed='true'],
+.btn-toggle.active,
+.btn-toggle[aria-pressed='true'] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Panel collapse toggle: quiet, sits in the header. */
+.panel-toggle {
+    min-height: var(--sa-btn-height-sm);
+    padding: 0 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border-color: transparent;
+}
+
+.panel-toggle:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* Icon-only: square, centred glyph, fixed hit area. */
+.sa-icon-btn {
+    width: var(--sa-btn-height);
+    min-width: var(--sa-btn-height);
+    height: var(--sa-btn-height);
+    min-height: var(--sa-btn-height);
+    padding: 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    background: transparent;
+}
+
+.sa-icon-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* Link-style button: no chrome at all, for inline actions. */
+.sa-link-btn {
+    min-height: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent-cyan);
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.sa-link-btn:hover {
+    color: var(--text-primary);
+    background: none;
+}
+
+/* Sizes. */
+.sa-btn--sm {
+    min-height: var(--sa-btn-height-sm);
+    padding: 0 8px;
+    font-size: 0.72rem;
+}
+
+.sa-btn--lg {
+    min-height: var(--sa-btn-height-lg);
+    padding: 0 16px;
+    font-size: 0.85rem;
+}
+
+/* ------------------------------------------------------- segmented tabs -- */
+
+/* The Basic / Advanced / MQTT switcher inside Config is the same control in a
+   segmented form: one shared base, one selected state, no new vocabulary. */
+.tab-buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.tab-btn {
+    min-height: 28px;
+    padding: 0 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+}
+
+.tab-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.tab-btn.active,
+.tab-btn[aria-selected='true'] {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--accent);
+    box-shadow: 0 1px 2px rgba(16, 20, 28, 0.08);
+}
+
+.tab-btn.active:hover,
+.tab-btn[aria-selected='true']:hover {
+    background: var(--bg-secondary);
+    color: var(--accent);
+}
+
+/* A button row: consistent gap and wrap so headers never look ragged. */
+.sa-btn-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sa-space-2);
+    flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------- inputs / selects - */
+
+/* Text inputs, number inputs, selects and textareas share one control look.
+
+   `.sa-input` / `.sa-select` are in this list because the workspace writes most
+   of its fields as `<input class="sa-input">` with no `type` attribute. The
+   `input[type='text']` selector cannot match an input that has no type, so
+   half the fields in one row were styled by this sheet and the other half were
+   not -- which is why the workspace's Name field sat next to a differently
+   sized Mode select. */
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='email'],
+input[type='search'],
+input[type='date'],
+input[type='time'],
+select,
+textarea,
+input:not([type]),
+.control-select,
+.sa-input,
+.sa-select,
+.config-item input[type='text'],
+.config-item input[type='number'],
+.config-item select {
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: var(--sa-font-sans);
+    font-size: var(--sa-body-sm);
+    line-height: 1.2;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-btn-radius);
+    min-height: var(--sa-btn-height);
+    padding: 0 10px;
+    width: 100%;
+    max-width: 100%;
+    transition: var(--sa-btn-transition);
+}
+
+textarea {
+    padding: 8px 10px;
+    min-height: 72px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+input:hover,
+select:hover,
+textarea:hover,
+.control-select:hover,
+.sa-input:hover,
+.sa-select:hover,
+.config-item input[type='text']:hover,
+.config-item input[type='number']:hover,
+.config-item select:hover {
+    border-color: var(--border-strong, var(--accent-cyan));
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.control-select:focus,
+.sa-input:focus,
+.sa-select:focus,
+.config-item input:focus,
+.config-item select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input::placeholder,
+textarea::placeholder,
+.sa-input::placeholder {
+    color: var(--text-muted);
+}
+
+/* Selects get a chevron so they read as dropdowns; a bare border did not.
+   Scoped to real <select> elements. The selectors are qualified so they outrank
+   the `background` shorthand in the input/select base rule above: that
+   shorthand is what reset background-repeat to `repeat` and tiled the chevron
+   all the way down a number input, because `.control-select` (0,1,0) lost to
+   `input[type='number']` (0,1,1). */
+select,
+select.control-select,
+.sa-select,
+.config-item select,
+.config-item select.control-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%235c6675' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 26px;
+}
+
+/* Checkboxes and radios: same accent as everything else. */
+input[type='checkbox'],
+input[type='radio'] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* A labelled control group: label above field, so the two never drift apart. */
+.sa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.sa-field__label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.sa-field__hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* Horizontal variant: label and control on one line. */
+.sa-field--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--sa-space-2);
+}
+
+.sa-field--inline .sa-field__label {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* ----------------------------------------------------- panel header fix --- */
+
+/* The drag handle is prepended to .panel-header, so the title was no longer
+   the first flex child and justify-content:space-between pushed it to the
+   middle. Pin the title to the left and let the controls take the right. */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.panel-header h2 {
+    margin: 0;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--sa-h2);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+/* Panel headings wrap on a narrow window; the controls must not slide down
+   with them and land under the second line. */
+.panel-header h2 { overflow-wrap: anywhere; }
+
+.panel-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* Narrow the tuning inputs so they do not dominate the header -- but keep them
+   on the shared control height. They were pinned to --sa-btn-height-sm (26px)
+   while the buttons either side of them were 32px, so their vertical centres
+   sat 3px off and the toolbar read as a mis-printed row. */
+#center-freq {
+    width: 96px;
+    text-align: right;
+    font-family: var(--sa-font-mono);
+}
+
+/* Number spinners need ~14px and squeezed the value into overlapping glyphs in
+   a 96px field. The arrows are also a pointer-only affordance here: the field
+   is typed into or nudged with the arrow keys. */
+#center-freq::-webkit-outer-spin-button,
+#center-freq::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+#center-freq {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+#frequency-range {
+    width: auto;
+    min-width: 104px;
+}
+
+/* The severity filter in the alerts header was a bare select with "min" jammed
+   against it; give it the same field treatment as every other control. */
+#alert-severity {
+    width: auto;
+    min-width: 86px;
+    display: inline-block;
+}
+
+/* ------------------------------------------------------- compact guide ---- */
+
+/* Outside the guided walkthrough the six step cards, each with a paragraph of
+   prose and its own action button, filled the entire first screen and pushed
+   the actual panels below the fold. Collapsed, a step is its number, its title
+   and its live status; the walkthrough restores the full cards. Turning
+   "Guided mode" on is what earns the detail. */
+.sa-step__why,
+.sa-step__body > .sa-btn {
+    display: none;
+}
+
+body.sa-tour .sa-step__why { display: block; }
+
+body.sa-tour .sa-step__body > .sa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* One compact line per step: number, title, status. */
+.sa-step {
+    align-items: baseline;
+    padding: 8px 10px;
+}
+
+.sa-step__body {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+}
+
+.sa-step h3 {
+    margin: 0;
+    font-size: 0.8rem;
+}
+
+.sa-step__status {
+    margin: 0;
+    font-size: 11px;
+}
+
+.sa-step__num {
+    align-self: center;
+    flex-basis: 20px;
+    height: 20px;
+    font-size: 11px;
+}
+
+/* In the walkthrough the step is the focus, so it goes back to a card. */
+body.sa-tour .sa-step { align-items: flex-start; padding: 10px; }
+
+body.sa-tour .sa-step__body { display: block; }
+
+body.sa-tour .sa-step__num {
+    align-self: auto;
+    flex-basis: 24px;
+    height: 24px;
+    font-size: 12px;
+}
+
+/* Collapsed, the strip's own explainer paragraph is the largest thing left in
+   it. The heading plus the steps say what is needed; the walkthrough brings the
+   prose back. */
+.sa-guide__intro > p { display: none; }
+
+body.sa-tour .sa-guide__intro > p { display: block; }
+
+/* Six steps on one row, then even splits. `auto-fit` produced a 4 + 2 wrap at
+   tablet widths, leaving the right half of the second row empty and the six
+   cards at two different heights' worth of trailing whitespace. */
+.sa-guide__steps {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+}
+
+@media (max-width: 1400px) {
+    .sa-guide__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* This file loads after ui-core.css, which collapses the strip to one column
+   below 768px. These rules have to cover the whole range below 1400px, not
+   just start at 768px, or the 721-768px band falls back to six columns. */
+@media (max-width: 720px) {
+    .sa-guide__steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 420px) {
+    .sa-guide__steps { grid-template-columns: minmax(0, 1fr); }
+}
+
+body.sa-tour .sa-guide__steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--sa-space-3);
+}
+
+@media (max-width: 900px) {
+    body.sa-tour .sa-guide__steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* The strip itself loses its air when collapsed. */
+.sa-guide { padding: var(--sa-space-3) var(--sa-space-4); }
+
+body.sa-tour .sa-guide { padding: var(--sa-space-4); }
+
+/* ------------------------------------------------------- module sub-tabs ----- */
+
+/* The app bar switches between sections (Dashboard / Config / Training /
+   Workspace). Inside a section there can be several panels, and stacking them
+   all in one column made the page a 4000px scroll. A secondary tab bar groups
+   them into modules so only the relevant set is on screen. */
+
+.sa-module-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    grid-column: span 12;
+    /* Sized to its tabs, not the viewport. Stretched to the full 1548px it
+       framed three ~90px labels in an empty 1400px bar. */
+    justify-self: start;
+    max-width: 100%;
+    padding: 3px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+/* A module tab is a button like every other, in the "quiet selected" role:
+   the active one lifts onto the page surface instead of filling with accent. */
+.sa-module-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: var(--sa-font-sans);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    min-height: 30px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    transition: var(--sa-btn-transition);
+}
+
+.sa-module-tab:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.sa-module-tab[aria-selected='true'] {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--accent);
+    box-shadow: 0 1px 2px rgba(16, 20, 28, 0.08);
+}
+
+.sa-module-tab:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 1px;
+}
+
+/* Per-tab counts ride along on the tab so the operator can triage without
+   opening each module (e.g. how many critical alerts are waiting). */
+.sa-module-tab__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--bg-raised, var(--border-color));
+    color: var(--text-secondary);
+    font-family: var(--sa-font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.sa-module-tab[aria-selected='true'] .sa-module-tab__count {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.sa-module-tab__count[data-tone='critical'] {
+    background: rgba(207, 34, 46, 0.14);
+    color: var(--danger);
+}
+
+html:not([data-theme='light']) .sa-module-tab__count[data-tone='critical'] {
+    background: rgba(255, 123, 114, 0.16);
+    color: var(--sa-critical);
+}
+
+/* One module is on screen at a time; the view itself is the 12-column grid
+   the panels lay out on. */
+.sa-module-view {
+    display: none;
+}
+
+.sa-module-view.is-active {
+    display: grid;
+    grid-column: span 12;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: clamp(12px, 1.1vw, 18px);
+    align-items: start;
+}
+
+/* Module spans. The primary panel of each module leads on the left at the
+   larger span; the secondary panel sits beside it.
+
+   Source order has System status before Spectrum analysis, so the lead is set
+   with `order`. Without it the 7-column spectrum chart was pushed into the
+   right-hand columns behind a 5-column status panel, inverting the reading
+   order: the thing the module exists to show was the smallest thing on screen. */
+.sa-module-view > .panel { grid-column: span 12; }
+
+/* `.panel { height: 100% }` (from the section layout) made a short panel
+   stretch to its row-mate's height, so a panel carried a large empty card
+   below its last row. Panels now take their natural height and the row is
+   top-aligned. The resize grip still sets an explicit min-height when an
+   operator drags it, and that still wins because it is an inline style. */
+.tab-view.active > .panel,
+.tab-view.active > .sa-section,
+.sa-module-view > .panel { height: auto; }
+
+/* The Monitor module is a two-column row. Letting the shorter panel keep its
+   natural height left ~230px of bare page under the System status card while
+   the Spectrum card beside it ran on; the row read as two unrelated boxes. The
+   cards now end level.
+
+   The height the System panel gains goes below its metric grid, not into it:
+   spreading the two rows apart opened a hole in the middle of the card, and
+   inflating the tiles made four KPIs into four near-empty boxes. Pinning the
+   SDR probe row to the bottom instead lets it read as the card's footer rule,
+   which is what it already looks like. */
+.sa-module-view[data-module='monitor'] { align-items: stretch; }
+
+.sa-module-view[data-module='monitor'] > .system-panel .panel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.sa-module-view[data-module='monitor'] > .system-panel .sdr-status-row {
+    margin-top: auto;
+}
+
+/* Below the breakpoint the panels stack, so there is no height to give up. */
+@media (max-width: 1100px) {
+    .sa-module-view[data-module='monitor'] { align-items: start; }
+    .sa-module-view[data-module='monitor'] > .system-panel .sdr-status-row {
+        margin-top: 14px;
+    }
+}
+
+.sa-module-view[data-module='monitor'] > .spectrum-panel {
+    grid-column: span 8;
+    order: -1;
+}
+.sa-module-view[data-module='monitor'] > .system-panel { grid-column: span 4; }
+
+.sa-module-view[data-module='threats'] > .anomaly-panel {
+    grid-column: span 7;
+    order: -1;
+}
+.sa-module-view[data-module='threats'] > .alerts-panel { grid-column: span 5; }
+
+/* Same level-bottoms treatment as the Monitor module: the detection timeline
+   and the alert list beside it never match in height, and the alert list is
+   capped at 340px so the mismatch is large. */
+.sa-module-view[data-module='threats'] { align-items: stretch; }
+
+.sa-module-view[data-module='threats'] > .alerts-panel .panel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.sa-module-view[data-module='threats'] > .alerts-panel .alerts-list {
+    flex: 1 1 auto;
+    max-height: none;
+}
+
+/* Responsive: below the two-column breakpoint a module's panels stack. */
+@media (max-width: 1100px) {
+    .sa-module-view[data-module] > .panel {
+        grid-column: span 12;
+        order: 0;
+    }
+    .sa-module-view[data-module='threats'] { align-items: start; }
+    .sa-module-view[data-module='threats'] > .alerts-panel .alerts-list {
+        max-height: 340px;
+    }
+}
+
+/* ----------------------------------------------------- empty vs. surface ---
+   An empty state replaces the surface it describes; it does not stack up
+   underneath it. The chart containers sat above their own state, so "No
+   detections yet" rendered below a 260px empty black box -- the one moment
+   the panel most needed to look finished was the moment it looked broken.
+
+   `:has(+ ...)` covers the dashboard, where the state immediately follows its
+   surface. In the workspace a readout row sits between the waterfall and its
+   state, so those use the general sibling combinator. */
+.chart-container:has(+ .sa-state:not([hidden])),
+.anomaly-chart-container:has(+ .sa-state:not([hidden])),
+.model-chart-container:has(+ .sa-state:not([hidden])),
+.alerts-list:has(+ .sa-state:not([hidden])),
+.sa-waterfall-wrap:has(~ .sa-state:not([hidden])),
+.sa-readout-row:has(~ .sa-state:not([hidden])),
+.sa-peak-table-wrap:has(~ .sa-state:not([hidden])) {
+    display: none;
+}
+
+/* Config and Training pair a dense panel with a much shorter one beside it.
+   Same treatment as the Monitor module: level bottoms, and anchor the shorter
+   card's last block so the height it gains reads as deliberate rather than as
+   empty space banked at the bottom of a bordered box. */
+.tab-view.active[data-tab="config"],
+.tab-view.active[data-tab="training"] { align-items: stretch; }
+
+.tab-view.active[data-tab="config"] > .panel .panel-content,
+.tab-view.active[data-tab="training"] > .panel .panel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+/* The file list is a scrolling list by design and must stay capped -- removing
+   the cap let 713 rows grow the page to 2166px. The slack instead goes to the
+   Configuration card, whose explainer is anchored to its bottom edge.
+
+   `margin-top: auto` only reaches a flex item of its own parent, and the
+   disclosure sits three levels down (panel-content > config-tabs >
+   tab-content), so the whole chain has to be a column for the anchor to bind. */
+.tab-view.active[data-tab="config"] > .config-panel .config-tabs,
+.tab-view.active[data-tab="config"] > .config-panel .tab-content.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+}
+
+.tab-view.active[data-tab="config"] > .config-panel .sa-disclose {
+    margin-top: auto;
+}
+
+/* The settings block grows and pins its explainer to the card's bottom edge,
+   mirroring the SDR probe row in System status. */
+.tab-view.active[data-tab="training"] > .training-panel .training-config {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+}
+
+.tab-view.active[data-tab="training"] > .training-panel .training-config > .sa-disclose {
+    margin-top: auto;
+}
+
+@media (max-width: 1100px) {
+    .tab-view.active[data-tab="config"],
+    .tab-view.active[data-tab="training"] { align-items: start; }
+
+    .tab-view.active[data-tab="config"] > .config-panel .config-tabs,
+    .tab-view.active[data-tab="config"] > .config-panel .tab-content.active {
+        flex: 0 0 auto;
+    }
+
+    .tab-view.active[data-tab="config"] > .config-panel .sa-disclose {
+        margin-top: var(--sa-space-3);
+    }
+
+    .tab-view.active[data-tab="training"] > .training-panel .training-config {
+        margin-bottom: 16px;
+    }
+
+    .tab-view.active[data-tab="training"] > .training-panel .training-config > .sa-disclose {
+        margin-top: var(--sa-space-3);
+    }
+}
+
+/* ------------------------------------------------------------ responsive -- */
+
+@media (max-width: 768px) {
+    /* Every control gets a real touch target on a phone, using the shared
+       height token instead of per-class minimums. */
+    .sa-btn,
+    .sa-icon-btn,
+    .sa-link-btn,
+    .panel-toggle,
+    .panel-controls button,
+    .btn-refresh,
+    .btn-clear,
+    .btn-start,
+    .btn-stop,
+    .btn-save,
+    .btn-primary,
+    .btn-secondary,
+    .tab-btn {
+        min-height: var(--sa-touch-target);
+        min-width: var(--sa-touch-target);
+    }
+
+    .sa-icon-btn {
+        width: var(--sa-touch-target);
+        min-width: var(--sa-touch-target);
+        height: var(--sa-touch-target);
+    }
+
+    .sa-link-btn {
+        min-height: var(--sa-touch-target);
+    }
+
+    input[type='text'],
+    input[type='number'],
+    select,
+    .control-select {
+        min-height: var(--sa-touch-target);
+    }
+
+    /* Headers stack instead of squeezing the controls into an unreadable row. */
+    .panel-header {
+        flex-wrap: wrap;
+    }
+
+    .panel-controls {
+        width: 100%;
+        justify-content: flex-start;
+        margin-left: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sa-btn,
+    .sa-icon-btn,
+    .panel-toggle,
+    .panel-controls button,
+    .btn-refresh,
+    .btn-toggle,
+    .btn-clear,
+    .btn-start,
+    .btn-stop {
+        transition: none;
+    }
+
+    .sa-btn:active,
+    .panel-controls button:active,
+    .btn-start:active,
+    .btn-stop:active {
+        transform: none;
+    }
+}
+/* ==========================================================================
+   Visual refinement
+   ==========================================================================
+   The rules above enforce consistency. This layer sets the visual voice:
+   a restrained operations console with stronger hierarchy, quieter borders,
+   elevation in place of heavy outlines, and type that is large enough to read
+   at a glance from a wall display.
+
+   Everything here is presentation only. No selector changes the DOM contract
+   the UI tests rely on.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- page shell - */
+
+body {
+    background:
+        radial-gradient(1200px 520px at 50% -240px,
+            color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+        var(--bg-primary);
+    background-attachment: fixed;
+}
+
+.app-bar {
+    min-height: 64px;
+    gap: clamp(16px, 2vw, 30px);
+    padding: 0 var(--sa-gutter-edge);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.app-bar__brand {
+    gap: 11px;
+}
+
+.app-bar__mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: linear-gradient(145deg, var(--accent), #3f6fd8);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.app-bar__mark::after {
+    inset: 7px;
+    border-width: 2px;
+    border-color: rgba(255, 255, 255, 0.88);
+    border-bottom-color: transparent;
+}
+
+.app-bar__name {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.app-bar__tag {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    padding-left: 11px;
+    margin-left: 1px;
+    border-left: 1px solid var(--border-strong);
+}
+
+/* Segmented primary navigation: one quiet rail with a raised active item,
+   instead of four independently coloured text buttons. */
+.app-bar__nav {
+    gap: 2px;
+    padding: 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.nav-tab {
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    transition: background-color 140ms ease, color 140ms ease,
+        border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.nav-tab:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    color: var(--text-primary);
+}
+
+.nav-tab.active {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-panel);
+}
+
+.app-bar__status {
+    gap: 7px;
+}
+
+.status-pill {
+    gap: 7px;
+    padding: 5px 11px;
+    background: transparent;
+    border-color: var(--border-color);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.led {
+    width: 7px;
+    height: 7px;
+}
+
+.led.active {
+    background: var(--success);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent);
+}
+
+.app-bar__tools {
+    gap: 4px;
+}
+
+.sa-icon-svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    pointer-events: none;
+}
+
+/* --------------------------------------------------------------- content -- */
+
+.dashboard-grid {
+    padding: clamp(18px, 2vw, 28px) var(--sa-gutter-edge);
+}
+
+.tab-view.active {
+    gap: var(--sa-page-gap);
+}
+
+/* ------------------------------------------------------------- module nav - */
+
+.sa-module-tabs {
+    padding: 4px;
+    gap: 2px;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.sa-module-tab {
+    min-height: 32px;
+    padding: 0 14px;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.sa-module-tab:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    color: var(--text-primary);
+}
+
+.sa-module-tab[aria-selected='true'] {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-panel);
+}
+
+.sa-module-tab__count {
+    min-width: 19px;
+    height: 19px;
+    background: var(--bg-raised);
+    color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- panels -- */
+
+.panel {
+    border-radius: var(--sa-panel-radius);
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-panel);
+}
+
+.panel-header {
+    min-height: 56px;
+    padding: var(--sa-panel-header-pad);
+    border-bottom-color: var(--border-color);
+    background: transparent;
+}
+
+.panel-header h2 {
+    font-size: var(--sa-h2);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+}
+
+.panel-content {
+    padding: var(--sa-panel-pad);
+}
+
+.sa-panel {
+    padding: 18px 20px;
+    margin-bottom: var(--sa-page-gap);
+    border-radius: var(--sa-panel-radius);
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-panel);
+}
+
+.sa-panel > h2 {
+    font-size: var(--sa-h2);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    min-height: 30px;
+}
+
+.panel-toggle {
+    min-height: 30px;
+    padding: 0 10px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    border-radius: 7px;
+}
+
+.panel-toggle:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* --------------------------------------------------------------- buttons -- */
+
+.sa-btn,
+.sa-icon-btn,
+.panel-controls button {
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.sa-btn--primary,
+.btn-primary {
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.sa-btn--primary:hover,
+.btn-primary:hover {
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.sa-icon-btn {
+    width: var(--sa-btn-height);
+    min-width: var(--sa-btn-height);
+    height: var(--sa-btn-height);
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+}
+
+.sa-icon-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    box-shadow: none;
+}
+
+.sa-icon-btn[aria-pressed='true'] {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- metrics - */
+
+.metric,
+.stat,
+.model-stat,
+.stat-item,
+.result-item,
+.analytics-metric {
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+    padding: var(--sa-tile-pad);
+}
+
+.metric-value,
+.stat-value,
+.result-value,
+.model-stat .stat-value,
+.stat-item .stat-value {
+    font-family: var(--sa-font-sans);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 650;
+    line-height: 1.15;
+}
+
+.stat-value,
+.result-value,
+.model-stat .stat-value,
+.stat-item .stat-value {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.analytics-metric .metric-value {
+    font-size: 1.375rem;
+    font-weight: 650;
+}
+
+.metric-label,
+.stat-label,
+.status-label,
+.result-label,
+.counter-label {
+    font-size: var(--sa-label);
+    font-weight: 600;
+    letter-spacing: var(--sa-label-tracking);
+    text-transform: uppercase;
+    color: var(--sa-label-color);
+}
+
+.metric-bar {
+    height: 6px;
+    background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.metric-fill {
+    background: var(--accent);
+}
+
+.sdr-status-row {
+    border-top-color: var(--border-color);
+}
+
+.sdr-status-row .metric-value {
+    font-family: var(--sa-font-sans);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--text-secondary);
+}
+
+/* Severity counters: a coloured rule and a large number, not four filled
+   alarm tiles. */
+.anomaly-counter {
+    padding: 14px 16px;
+    border-top-width: 2px;
+    text-align: left;
+}
+
+.counter-value {
+    font-family: var(--sa-font-sans);
+    font-variant-numeric: tabular-nums;
+    font-size: 2rem;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+}
+
+/* ----------------------------------------------------------------- charts - */
+
+.chart-container,
+.anomaly-chart-container,
+.model-chart-container {
+    height: 300px;
+    margin-bottom: 16px;
+    padding: 14px;
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+    background: var(--sa-chart-bg);
+}
+
+.model-chart-container {
+    height: 260px;
+}
+
+.anomaly-chart-container {
+    height: 280px;
+}
+
+.spectrum-stats {
+    gap: var(--sa-tile-gap);
+}
+
+/* ------------------------------------------------------------- guide strip - */
+
+.sa-guide {
+    padding: 18px 20px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-panel-radius);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-panel);
+}
+
+.sa-guide__head {
+    gap: 16px;
+}
+
+.sa-guide__intro h2 {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0 0 3px;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+}
+
+.sa-guide__intro h2::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+.sa-guide__intro p {
+    max-width: 72ch;
+    font-size: var(--sa-body-sm);
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.sa-guide__steps {
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.sa-step {
+    gap: 11px;
+    padding: 12px 14px;
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.sa-step__num {
+    flex-basis: 22px;
+    height: 22px;
+    font-size: 11px;
+    font-weight: 650;
+    border-width: 1px;
+}
+
+.sa-step h3 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+
+.sa-step__status {
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.sa-guide__tour {
+    border-top-color: var(--border-color);
+}
+
+.sa-guide__bar {
+    height: 6px;
+    background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+/* ---------------------------------------------------------------- content - */
+
+.sa-panel-desc,
+.sa-section-desc {
+    max-width: 82ch;
+    font-size: var(--sa-body-sm);
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.sa-hint {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.sa-window {
+    padding: 9px 12px;
+    border-radius: var(--sa-btn-radius);
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+    font-size: 0.75rem;
+}
+
+.sa-disclose {
+    border-style: solid;
+    border-color: var(--border-color);
+    border-radius: var(--sa-tile-radius);
+    background: var(--bg-tertiary);
+}
+
+.sa-disclose > summary {
+    padding: 10px 12px;
+    font-size: 0.75rem;
+    color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ forms - */
+
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='email'],
+input[type='search'],
+input[type='date'],
+input[type='time'],
+select,
+textarea,
+input:not([type]),
+.control-select,
+.sa-input,
+.sa-select,
+.config-item input[type='text'],
+.config-item input[type='number'],
+.config-item select {
+    min-height: var(--sa-btn-height);
+    padding: 0 12px;
+    border-radius: var(--sa-btn-radius);
+    border-color: var(--border-color);
+    background: var(--sa-input-bg);
+    color: var(--text-primary);
+    font-size: var(--sa-body-sm);
+}
+
+select,
+select.control-select,
+.sa-select,
+.config-item select,
+.config-item select.control-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238391a5' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 10px 6px;
+    padding-right: 30px;
+}
+
+input:hover,
+select:hover,
+textarea:hover,
+.control-select:hover,
+.sa-input:hover,
+.sa-select:hover {
+    border-color: var(--border-strong);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.control-select:focus,
+.sa-input:focus,
+.sa-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Form labels are sentence case at a readable size. Uppercase is reserved for
+   metric labels, where it functions as a data caption rather than a name. */
+.config-item label,
+.sa-field label,
+.sa-field__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-secondary);
+}
+
+.config-item label:has(input[type="checkbox"]) {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.config-item {
+    gap: 7px;
+}
+
+.config-grid {
+    gap: 16px 18px;
+}
+
+.slider-value {
+    font-family: var(--sa-font-sans);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+input[type='range'] {
+    accent-color: var(--accent);
+}
+
+/* --------------------------------------------------------------- tabs ----- */
+
+.tab-buttons {
+    padding: 4px;
+    gap: 2px;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.tab-btn {
+    min-height: 30px;
+    padding: 0 14px;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.tab-btn.active,
+.tab-btn[aria-selected='true'] {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-panel);
+}
+
+/* --------------------------------------------------------------- lists ---- */
+
+.data-file-list {
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.file-item {
+    padding: 12px 14px;
+    font-size: 0.8125rem;
+}
+
+.file-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.file-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.alerts-list {
+    scrollbar-color: var(--border-strong) transparent;
+}
+
+.alert-item {
+    padding: 12px 14px;
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.alert-message {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- footer -- */
+
+.footer {
+    min-height: 46px;
+    padding: 10px var(--sa-gutter-edge);
+    background: var(--bg-secondary);
+    border-top-color: var(--border-color);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.footer-left,
+.footer-right {
+    gap: 9px;
+}
+
+.separator {
+    color: var(--border-strong);
+}
+
+.sa-conn {
+    font-family: var(--sa-font-sans);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+}
+
+.sa-link-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--text-secondary);
+}
+
+.sa-link-btn:hover {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- workspace -- */
+
+.sa-section .sa-header {
+    padding-bottom: 14px;
+    margin-bottom: 20px;
+    border-bottom-color: var(--border-color);
+}
+
+.sa-section .sa-header h1 {
+    font-size: var(--sa-h1);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    color: var(--text-primary);
+}
+
+.sa-rail {
+    flex: 0 0 clamp(280px, 22vw, 352px);
+    width: clamp(280px, 22vw, 352px);
+}
+
+.sa-form-grid {
+    gap: 12px 12px;
+}
+
+.sa-receiver {
+    padding: 12px;
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+}
+
+.sa-receiver .meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.sa-waterfall-wrap,
+#sa-map,
+.sa-log,
+.sa-table-scroll {
+    border-radius: var(--sa-tile-radius);
+    border-color: var(--border-color);
+}
+
+.sa-pmr-cell {
+    padding: 6px 4px;
+    border-radius: 6px;
+    border-color: var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.sa-readout-row {
+    font-size: 0.75rem;
+}
+
+.sa-subhead {
+    font-size: var(--sa-label);
+    letter-spacing: var(--sa-label-tracking);
+}
+
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 1100px) {
+    .app-bar {
+        min-height: 0;
+        padding-block: 10px;
+        row-gap: 10px;
+    }
+
+    .app-bar__brand {
+        margin-right: auto;
+    }
+
+    .app-bar__nav {
+        order: 3;
+        flex: 1 1 100%;
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .app-bar__nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .app-bar__status {
+        order: 4;
+        flex: 1 1 100%;
+        margin-left: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .app-bar__status::-webkit-scrollbar {
+        display: none;
+    }
+
+    .app-bar__tools {
+        order: 2;
+        margin-left: 0;
+    }
+
+    .chart-container,
+    .anomaly-chart-container {
+        height: 240px;
+    }
+}
+
+@media (max-width: 720px) {
+    .dashboard-grid {
+        padding: 14px var(--sa-gutter);
+    }
+
+    .panel-header {
+        min-height: 0;
+        padding: 13px 15px;
+    }
+
+    .panel-content {
+        padding: 15px;
+    }
+
+    .sa-panel {
+        padding: 15px;
+    }
+
+    .sa-guide {
+        padding: 15px;
+    }
+
+    .tab-view.active {
+        gap: 14px;
+    }
+
+    .chart-container,
+    .anomaly-chart-container {
+        height: 220px;
+    }
+}
+
+@media (max-width: 560px) {
+    .status-pill__label {
+        display: none;
+    }
+
+    .status-pill {
+        padding: 7px;
+    }
+
+    .app-bar__tag {
+        display: none;
+    }
+
+    .sa-guide__steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ------------------------------------------------------- visual corrections */
+
+/* Intent variants must win inside panel headers. `.panel-controls button`
+   (0,2,1) outranks `.sa-btn--success` (0,1,0), so Start/Train/Deploy rendered
+   as neutral buttons and the primary action had no visual weight. */
+.panel-controls .sa-btn--primary,
+.panel-header .sa-btn--primary {
+    background: var(--sa-btn-primary-bg);
+    border-color: var(--sa-btn-primary-bg);
+    color: var(--sa-btn-primary-fg);
+}
+
+.panel-controls .sa-btn--success,
+.panel-header .sa-btn--success {
+    background: var(--sa-btn-success-bg);
+    border-color: var(--sa-btn-success-bg);
+    color: var(--sa-btn-success-fg);
+}
+
+.panel-controls .sa-btn--danger,
+.panel-header .sa-btn--danger {
+    background: var(--sa-btn-danger-bg);
+    border-color: var(--sa-btn-danger-bg);
+    color: var(--sa-btn-danger-fg);
+}
+
+.panel-controls .sa-btn--danger-ghost,
+.panel-header .sa-btn--danger-ghost {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--danger);
+}
+
+.panel-controls .sa-btn--primary:hover,
+.panel-header .sa-btn--primary:hover {
+    background: var(--sa-btn-primary-bg-hover);
+    border-color: var(--sa-btn-primary-bg-hover);
+}
+
+.panel-controls .sa-btn--success:hover,
+.panel-header .sa-btn--success:hover {
+    background: var(--sa-btn-success-bg-hover);
+    border-color: var(--sa-btn-success-bg-hover);
+}
+
+.panel-controls .sa-btn--danger:hover,
+.panel-header .sa-btn--danger:hover {
+    background: var(--sa-btn-danger-bg-hover);
+    border-color: var(--sa-btn-danger-bg-hover);
+}
+
+.panel-controls .sa-btn--danger-ghost:hover,
+.panel-header .sa-btn--danger-ghost:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--danger);
+}
+
+/* Monitor module: a full-width status strip above a full-width spectrum
+   chart, instead of an 8/4 split that left half the right-hand card empty.
+
+   The split made the secondary panel stretch to the chart's height and bank
+   ~250px of blank card below the last metric; shrinking the chart to fit made
+   the hero content small. Stacking them lets the chart use the whole width
+   and gives the status strip a natural, balanced height. */
+.sa-module-view[data-module='monitor'] {
+    align-items: start;
+}
+
+.sa-module-view[data-module='monitor'] > .system-panel {
+    grid-column: span 12;
+    order: -2;
+}
+
+.sa-module-view[data-module='monitor'] > .spectrum-panel {
+    grid-column: span 12;
+    order: -1;
+}
+
+.sa-module-view[data-module='monitor'] > .system-panel .panel-content {
+    display: block;
+}
+
+.sa-module-view[data-module='monitor'] > .system-panel .metrics-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sa-module-view[data-module='monitor'] > .system-panel .sdr-status-row {
+    margin-top: 14px;
+}
+
+@media (max-width: 1100px) {
+    .sa-module-view[data-module='monitor'] > .system-panel .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .sa-module-view[data-module='monitor'] > .system-panel .metrics-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Compact selects that live in a panel toolbar should size to their content.
+   The shared form rule sets `width: 100%`, which inside an auto-width flex
+   toolbar resolved unpredictably and dropped the period selector onto a row of
+   its own. */
+.panel-controls select,
+.panel-header select,
+.sa-panel > h2 select,
+.sa-toolbar select {
+    width: auto;
+    min-width: 128px;
+}
+
+.panel-controls .control-select,
+.panel-header .control-select {
+    width: auto;
+}
+
+/* ----------------------------------------------------- final layout polish */
+
+/* Keep the status labels on a phone. Three unlabelled dots in a row conveyed
+   nothing; the three pills fit comfortably at 390px. */
+@media (max-width: 560px) {
+    .status-pill__label {
+        display: inline;
+    }
+
+    .status-pill {
+        padding: 5px 9px;
+    }
+}
+
+/* Two-up KPIs on a phone is the readable middle ground: one column made four
+   short numbers into four near-full-page cards. */
+@media (max-width: 560px) {
+    .metrics-grid,
+    .spectrum-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 360px) {
+    .metrics-grid,
+    .spectrum-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Config is a form, not a pair of dashboards. Stacking the two panels on the
+   full content width removes the tall empty middle that an equal-height
+   7/5 split produced, and lets the Basic settings sit on one row. */
+.tab-view.active[data-tab='config'] {
+    align-items: start;
+}
+
+.tab-view.active[data-tab='config'] > .config-panel,
+.tab-view.active[data-tab='config'] > .data-panel {
+    grid-column: span 12;
+}
+
+.tab-view.active[data-tab='config'] > .config-panel .config-tabs,
+.tab-view.active[data-tab='config'] > .config-panel .tab-content.active {
+    flex: 0 0 auto;
+}
+
+.tab-view.active[data-tab='config'] > .config-panel .sa-disclose {
+    margin-top: 18px;
+}
+
+.tab-view.active[data-tab='config'] .config-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tab-view.active[data-tab='config'] #basic-config .config-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1200px) {
+    .tab-view.active[data-tab='config'] #basic-config .config-grid,
+    .tab-view.active[data-tab='config'] .config-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .tab-view.active[data-tab='config'] .config-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* The data panel no longer needs to match a taller neighbour, so the file list
+   can use the full width at its normal scroll height. */
+.tab-view.active[data-tab='config'] > .data-panel .data-file-list {
+    max-height: 420px;
+}
+
+/* ui-core forces a single metric column below 420px with !important; keep the
+   two-up rhythm down to 360px and only drop to one on very narrow screens. */
+@media (max-width: 560px) {
+    .metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 360px) {
+    .metrics-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
+/* Equal-width section tabs make the mobile header read as one control rather
+   than four labels with uneven gaps. */
+@media (max-width: 1100px) {
+    .app-bar__nav .nav-tab {
+        flex: 1 1 0;
+        text-align: center;
+        padding-inline: 8px;
+    }
+
+    /* Panel actions align to the right edge under their title on a phone. */
+    .panel-controls {
+        justify-content: flex-end;
+    }
+}
+
+/* Empty detection and alert lists should occupy their card and centre the
+   message, rather than hugging the top and leaving a large blank lower half. */
+.sa-module-view[data-module='threats'] > .anomaly-panel .panel-content,
+.sa-module-view[data-module='threats'] > .alerts-panel .panel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+#anomaly-chart-state,
+#alerts-state {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 140px;
+}
+
+#alerts-state .sa-state-title,
+#anomaly-chart-state .sa-state-title {
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+}
+
+@media (max-width: 1100px) {
+    #anomaly-chart-state,
+    #alerts-state {
+        flex: 0 0 auto;
+        justify-content: flex-start;
+        min-height: 72px;
+    }
+}
+
+/* On a large screen the Threats module is mostly empty placeholder space. Give
+   the row a viewport-aware minimum so the two cards resolve to a deliberate
+   height instead of stopping a third of the way down the page. */
+@media (min-width: 1101px) {
+    .sa-module-view[data-module='threats'] {
+        min-height: clamp(420px, calc(100vh - 500px), 640px);
+    }
+}
+
+/* --------------------------------------------------------- third-party map - */
+
+#sa-map {
+    background: var(--bg-tertiary);
+}
+
+.leaflet-bar {
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-btn-radius);
+    box-shadow: var(--shadow-panel);
+    overflow: hidden;
+}
+
+.leaflet-bar a,
+.leaflet-bar a:hover {
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    background: var(--bg-secondary);
+    border-bottom-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.leaflet-bar a:hover {
+    background: var(--bg-tertiary);
+}
+
+.leaflet-bar a:last-child {
+    border-bottom: 0;
+}
+
+.leaflet-container {
+    font-family: var(--sa-font-sans);
+}
+
+/* Filled accent uses a near-black label in dark mode and white in light mode.
+   White on the lighter dark-theme blue measured 3.1:1, below the 4.5:1 floor
+   for the button's small text. */
+:root {
+    --sa-btn-primary-fg: #071427;
+}
+
+html[data-theme='light'] {
+    --sa-btn-primary-fg: #ffffff;
+}
+
+/* Onboarding as one continuous progress strip. Six separate bordered cards
+   inside a bordered panel read like a component sampler; a single divided
+   rail reads as one purposeful checklist. The 1px gap over a border-coloured
+   background draws the dividers in both axes, including when the grid wraps. */
+.sa-guide__steps {
+    gap: 1px;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-tile-radius);
+    overflow: hidden;
+}
+
+.sa-step {
+    border: 0;
+    border-radius: 0;
+    background: var(--bg-tertiary);
+    padding: 13px 16px;
+}
+
+.sa-step__num {
+    background: color-mix(in srgb, currentColor 9%, transparent);
+    border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.sa-step[data-state='ready'] .sa-step__num {
+    background: color-mix(in srgb, var(--sa-ok) 12%, transparent);
+}
+
+.sa-step[data-state='attention'] .sa-step__num {
+    background: color-mix(in srgb, var(--sa-critical) 12%, transparent);
+}
+
+/* Guided mode shows one step at a time, so that step should own the strip.
+   The three-column track from the compact view left it occupying a third of
+   the width with two empty tracks beside it. */
+body.sa-tour .sa-guide__steps {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body.sa-tour .sa-step {
+    padding: 18px;
+}
+
+/* The guided-mode strip is moved into whichever section its current step
+   needs, so it must span the full grid wherever it lands. */
+.tab-view.active > .sa-guide {
+    grid-column: span 12;
+}
+
+/* Five spectrum readouts across a tablet left "433.368640 MHz" wrapping onto
+   two lines in one tile and one line in the rest. Three-up keeps them on a
+   common baseline; the phone breakpoint drops to two. */
+@media (max-width: 1100px) {
+    .spectrum-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .spectrum-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ------------------------------------------------------------ footer links */
+
+.footer-link {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.footer-link:hover,
+.footer-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.footer .sa-link-btn {
+    color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------- dialogs - */
+
+.modal-overlay,
+.sa-help-overlay,
+.sa-modal {
+    background: color-mix(in srgb, #05080d 68%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+.analysis-modal,
+.dataset-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: 86vh;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-deep);
+}
+
+.modal-header {
+    flex: 0 0 auto;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+}
+
+.modal-header .sa-hint {
+    margin: 4px 0 0;
+}
+
+.modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 20px 22px;
+    overflow-y: auto;
+}
+
+.modal-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    margin: 0;
+    padding: 14px 22px 18px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Workspace prompt */
+.sa-modal {
+    padding: 20px;
+}
+
+.sa-modal .box {
+    width: min(480px, 100%);
+    min-width: 0;
+    max-width: 480px;
+    padding: 20px;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-deep);
+}
+
+.sa-modal__title {
+    margin-bottom: 6px;
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+}
+
+.sa-modal__body {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.sa-modal .modal-actions {
+    padding: 14px 0 0;
+}
+
+/* Shortcut sheet */
+.sa-help {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 660px;
+    max-height: min(84vh, 820px);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-deep);
+    outline: none;
+}
+
+.sa-help:focus {
+    outline: none;
+}
+
+.sa-help__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex: 0 0 auto;
+    padding: 16px 18px 16px 22px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sa-help h2 {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    text-transform: none;
+    color: var(--text-primary);
+}
+
+.sa-help__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 16px 22px 4px;
+    overflow-y: auto;
+}
+
+.sa-help__group {
+    margin-bottom: 18px;
+}
+
+.sa-help__group h3 {
+    margin: 0 0 4px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.sa-help__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8125rem;
+}
+
+.sa-help .modal-actions {
+    padding: 14px 22px 18px;
+}
+
+.sa-help kbd {
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* ----------------------------------------------------------------- toasts - */
+
+.sa-toast-host {
+    right: 20px;
+    bottom: 20px;
+    gap: 10px;
+}
+
+.sa-toast {
+    min-width: 300px;
+    max-width: 400px;
+    padding: 13px 15px;
+    border-radius: 10px;
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-deep);
+}
+
+.sa-toast__title {
+    font-size: 0.6875rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+}
+
+.sa-toast__message {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+}
+
+.sa-toast__close {
+    border-radius: 5px;
+}
+
+.sa-toast__close:hover {
+    background: var(--bg-tertiary);
+}
+
+@media (max-width: 560px) {
+    .analysis-modal,
+    .dataset-modal {
+        max-height: 90vh;
+    }
+
+    .modal-header,
+    .modal-body {
+        padding-inline: 16px;
+    }
+
+    .modal-actions {
+        padding: 12px 16px 16px;
+        flex-wrap: wrap;
+    }
+
+    .sa-help {
+        max-height: 88vh;
+    }
+
+    .sa-help__header {
+        padding-inline: 16px;
+    }
+
+    .sa-help__body {
+        padding-inline: 16px;
+    }
+
+    .sa-help .modal-actions {
+        padding: 12px 16px 16px;
+    }
+}
+
+/* --------------------------------------------------------- states & tables */
+
+/* Empty and error states are prose, not alarm signage. Sentence case reads
+   calmer and still carries severity through the title colour and the accent
+   bar on errors. */
+.sa-state .sa-state-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-primary);
+}
+
+.sa-state--empty .sa-state-title {
+    color: var(--text-secondary);
+}
+
+.sa-state .sa-state-detail {
+    max-width: 52ch;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+.sa-state--error {
+    border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border-color));
+    border-left: 3px solid var(--danger);
+    border-radius: var(--sa-tile-radius);
+    background: color-mix(in srgb, var(--danger) 5%, transparent);
+}
+
+.sa-state--stale {
+    border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border-color));
+    border-left: 3px solid var(--warning);
+    border-radius: var(--sa-tile-radius);
+    background: color-mix(in srgb, var(--warning) 5%, transparent);
+}
+
+.sa-state--error .sa-state-title {
+    color: var(--danger);
+}
+
+.sa-state--stale .sa-state-title {
+    color: var(--warning);
+}
+
+/* Data tables: smaller headers, roomier rows, tabular figures. */
+.sa-table,
+.sa-peak-table {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.sa-table th,
+.sa-peak-table th {
+    padding: 7px 8px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sa-table td,
+.sa-peak-table td {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.sa-table tbody tr:hover,
+.sa-peak-table tbody tr:hover {
+    background: var(--bg-tertiary);
+}
+
+.sa-log {
+    padding: 12px;
+    border-radius: var(--sa-tile-radius);
+    font-size: 0.75rem;
+    line-height: 1.55;
+}

@@ -5,17 +5,21 @@
 ## 🚀 Features
 
 ### Core Capabilities
-- **Real-time Spectrum Monitoring**: Continuous scanning of configured frequency bands
-- **Machine Learning Anomaly Detection**: Isolation Forest-based anomaly detection with adaptive thresholds
-- **RF Fingerprinting**: Device identification and classification using unique signal characteristics
-- **Exact Frequency Detection**: Pinpoint anomaly detection with 6-decimal precision frequency logging
+- **Real-time Spectrum Monitoring**: Continuous band sweeping with overlapping captures
+- **Anomaly Detection**: Hann-windowed periodogram with robust noise-floor estimation, DC/edge rejection and novelty suppression
+- **Transmitter Geolocation**: RSSI triangulation across multiple receivers, with confidence ellipse and fit-quality grading
+- **Receiver Calibration**: Per-receiver, per-frequency dB offsets and a fitted path-loss exponent
+- **Multi-transport Scanning**: Local `rtl_power`, remote `rtl_tcp` (native IQ client), or pinned manual levels
+- **Exact Frequency Detection**: Sub-bin parabolic interpolation on the detected peak
 - **Multi-mode Detection**: Lite mode (2 features) and Full mode (12 features) for different performance needs
+- **Band Plans**: PMR446, EU/US ISM, 2 m and 70 cm amateur, air band and FM broadcast
 
 ### Modern Architecture
 - **Professional CLI Interface**: Rich console output with tables, colors, and progress indicators
-- **Clean Architecture**: Domain-driven design with clear separation of concerns
+- **Clean Architecture**: Domain-driven design with declared ports in `core/interfaces/ports.py`
 - **Type Safety**: Comprehensive type hints throughout the codebase
-- **Error Handling**: Robust exception hierarchy with recovery mechanisms
+- **Device Safety**: Serialised access to each SDR, in-process and cross-process, with hard timeouts
+- **Crash-safe Storage**: Atomic writes and legacy-format reads
 - **Configuration Management**: Structured configuration with validation
 
 ### Integration & Deployment
@@ -116,6 +120,111 @@ spectrum-alert train models --mode full --days 7
 spectrum-alert train models --mode lite --days 3
 ```
 
+### Geolocation and Calibration
+
+Geolocation needs at least two enabled receivers. Add them with coordinates:
+
+```bash
+# A local dongle
+spectrum-alert geo add-receiver Home --lat 35.130 --lon 33.310 --gain 30 --ppm 20
+
+# A remote host running rtl_tcp
+spectrum-alert geo add-receiver Hill --lat 35.080 --lon 33.380 \
+  --mode rtltcp --host 10.0.0.5 --port 1234
+
+spectrum-alert geo receivers
+```
+
+```bash
+# One real scan, with peak, noise floor, prominence and reliability
+spectrum-alert geo scan 446100000 --span 200000 -i 0.5
+
+# Locate an emitter from every enabled receiver
+spectrum-alert geo triangulate 446100000
+
+# Equalise receivers against known broadcast transmitters (preview, then apply)
+spectrum-alert geo calibrate
+spectrum-alert geo calibrate --apply
+
+# Fit the path-loss exponent from transmitter geometry
+spectrum-alert geo fit-ple
+```
+
+The same functionality is available in the web interface, in the **analysis
+workspace** section of the dashboard: a live spectrum waterfall, a map with
+receiver positions and the estimated emitter with its confidence ellipse,
+receiver management, calibration, and a PMR446 channel scanner.
+
+The workspace used to be a separate page at `/geolocate`. It is now part of the
+dashboard so that locating something does not take the operator away from the
+system panels and alerts. `/geolocate` redirects to `/#workspace`, so existing
+bookmarks still land in the right place.
+
+### RF Fingerprinting (device identification)
+
+Identification answers "what is this transmitter?" where geolocation answers
+"where is it?". Both run off one capture, so the dashboard's analysis workspace
+shows them **on one screen**, side by side under a shared waterfall, receiver
+roster and target frequency. The map panel locates the target; the signature
+panel identifies the transmitter; neither is hidden behind a tab. The layout is Bootstrap 5.3.3
+(vendored under `static/vendor/bootstrap`, so no internet access is needed) on a
+fluid grid that fills the viewport at any width.
+
+A signature is a 12-value, gain-invariant feature vector: envelope statistics,
+normalised higher-order moments of the complex signal, envelope rise/fall rates
+and lag-1 correlation, and three spectral-shape measures. Gain invariance is the
+point -- a signature captured on one receiver still matches on another, because
+nothing in the vector restates absolute power.
+
+```bash
+# Capture from a receiver and identify it against the library
+curl -X POST localhost:8081/api/fingerprints/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"sdrId":"hilltop","frequencyHz":145500000,"captures":4}'
+
+# Enrol a known device so future captures can be identified
+curl -X POST localhost:8081/api/fingerprints/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"sdrId":"hilltop","frequencyHz":145500000,"label":"Base station",
+       "vendor":"Acme","model":"TX-1"}'
+
+curl localhost:8081/api/fingerprints   # the reference library
+```
+
+Each capture averages several short bursts, because one capture carries the
+receiver's own noise realisation and would otherwise not match its own
+reference. Results are deliberately conservative:
+
+| Status | Meaning |
+| --- | --- |
+| `identified` | One candidate close enough and clearly separated from the rest |
+| `ambiguous` | Two references too close to separate; no ID is claimed |
+| `indeterminate` | The library holds no distinct references to compare against |
+| `no-match` | The closest reference is beyond the accept threshold |
+| `unknown` | The library is empty |
+
+An empty library reports `unknown` rather than guessing, and a pinned
+`manualRssiDb` receiver is refused outright because a fixed level carries no
+modulation to fingerprint.
+
+### Web Interface
+
+```bash
+# Dashboard
+spectrum-alert web --port 8000
+
+# Or directly, for reload/worker control
+uvicorn spectrum_alert.web.run:create_app --factory --port 8000
+```
+
+Pages:
+
+| Path | Purpose |
+| --- | --- |
+| `/` | Dashboard: system status, anomalies, model training, data management |
+| `/` | System panels, alerts, model, **analysis workspace** (waterfall, receivers, calibration, map, Identify, PMR446) |
+| `/geolocate` | Redirects to `/#workspace` |
+
 ### Configuration
 
 The system uses structured configuration files in `config/config.ini`:
@@ -144,17 +253,20 @@ password =
 ### Package Structure
 ```
 spectrum_alert/
-├── cli/                    # Modern CLI interface
-├── core/                   # Business logic
-│   ├── domain/            # Domain models (Pydantic)
-│   ├── services/          # Core services
+├── cli/                    # CLI interface (main + the `geo` commands)
+├── core/                   # Business logic, no infrastructure imports
+│   ├── domain/            # Pydantic models: SpectrumData, SDRReceiver, ...
+│   ├── interfaces/        # Ports (Protocols) for the hexagonal boundary
+│   ├── services/          # propagation, spectrum_analysis, calibration,
+│   │                      # triangulation, band_plans, feature_extraction
 │   └── exceptions.py      # Custom exceptions
-├── infrastructure/        # External integrations
-│   ├── sdr/              # SDR interfaces
-│   ├── messaging/        # MQTT communication
-│   ├── storage/          # Data persistence
-│   └── monitoring/       # System monitoring
-└── application/           # Use cases and workflows
+├── infrastructure/        # Adapters
+│   ├── sdr/               # RTL-SDR, rtl_tcp, scanner, device locks
+│   ├── messaging/         # MQTT communication
+│   ├── storage/           # DataStorage, ReceiverStore
+│   └── monitoring/        # System monitoring
+├── application/           # Use cases and workflows
+└── web/                    # FastAPI app, geolocation router, UI assets
 ```
 
 ### Key Components
@@ -166,10 +278,40 @@ spectrum_alert/
 - `FeatureVector`: ML feature extraction results
 
 #### Infrastructure Services
-- `SDRInterface`: RTL-SDR device management with error recovery
+- `SDRInterface`: RTL-SDR device management; the only backend is `RTLSDRInterface`
+  (`pyrtlsdr`)
+- `SpectrumScanner`: unified scanner over `rtl_power`, `rtl_tcp` and manual levels
+- `RtltcpClient`: native `rtl_tcp` protocol client for remote dongles
+- `hold_device`: in-process mutex plus an advisory `flock`, so a dongle is never
+  retuned mid-transfer or shared with another process
 - `MQTTManager`: Robust MQTT communication with reconnection
-- `DataStorage`: Structured data persistence and retrieval
+- `DataStorage`: Structured data persistence; atomic writes, schema-versioned,
+  reads both current and archived file formats
+- `ReceiverStore`: receiver roster with atomic JSON persistence
 - `SystemMonitor`: Resource monitoring and health checks
+
+### Signal Levels: dBFS, Not dBm
+
+An RTL-SDR has no calibrated reference. Everything it reports is **dBFS** (dB
+relative to full scale) until a per-receiver calibration offset is applied, and
+even then the result is only as good as that calibration. The dashboard, the
+`geo` commands and the anomaly metadata all label levels as dBFS for this
+reason. The path-loss model additionally assumes a reference power at 1 m
+(`referenceRssiDbm`) and an exponent (`pathLossExponent`); both are band
+defaults until you fit them with `geo fit-ple`.
+
+### Path-Loss Model
+
+RSSI is converted to a distance with::
+
+    d = 10 ** ((P0 - RSSI) / (10 * n))
+
+then a Huber-robust weighted least-squares fit finds the emitter position that
+best matches every receiver's distance circle. Fit quality is graded `good` /
+`fair` / `poor` from the RSSI residual, the per-receiver outliers, the
+normalised geometric residual and the confidence ellipse, and the reasons are
+reported alongside it. Two receivers are usable but underconstrained; three or
+more give a meaningful fix.
 
 ## 🐳 Docker Deployment
 
@@ -248,6 +390,28 @@ System Status
 │ Memory   │ 27.1% │ 45.7 GB   │ 62.7 GB  │
 │ Disk     │ 67.4% │ 285.1 GB  │ 915.3 GB │
 └──────────┴───────┴───────────┴──────────┘
+```
+
+### Geolocation
+```
+Estimate at 446.100000 MHz
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field            ┃ Value               ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│ Latitude         │ 35.100000           │
+│ Longitude        │ 33.350000           │
+│ Uncertainty      │ +/- 50 m            │
+│ RMS residual     │ 0 m (0.00 dB)       │
+│ Receiver spread  │ 9597 m              │
+│ Quality          │ good                │
+│ Reasons          │ consistent fit      │
+└──────────────────┴─────────────────────┘
+Residuals
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Receiver ┃ Measured dBFS ┃ Predicted dBFS ┃ Residual dB ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ A        │ -174.3        │ -174.3         │ +0.00       │
+└──────────┴───────────────┴───────────────┴─────────────┘
 ```
 
 ## 🔧 Advanced Features
@@ -348,7 +512,7 @@ The software provides a menu-driven interface that allows you to choose between 
 ### Use Cases:
 - **RF Spectrum Surveillance**: Continuously monitor ham bands and automatically detect anomalies that could indicate illegal transmissions.
 - **Direction Finding**: Deploy multiple devices in different locations to triangulate the source of illegal transmissions by correlating anomalies across devices.
-- **RF Fingerprinting**: Use the software to build models that identify specific devices based on their unique RF fingerprints. This can help track and identify persistent offenders in the spectrum.
+- **RF Fingerprinting**: Identify a device from its RF signature and tell whether an emission comes from a transmitter seen before. Implemented as the Identify view on `/geolocate` (see above); a reference library of known devices is built by capturing them once.
 - **Automated Monitoring and Detection**: Run the software in a fully automated mode to gather data, train models, and start monitoring without manual intervention.
 
 ### Example Scenarios:
@@ -364,11 +528,19 @@ The software provides a menu-driven interface that allows you to choose between 
 2. **Step 2**: The software automatically gathers data, trains models, and begins real-time spectrum monitoring.
 3. **Step 3**: Anomalies are detected in real-time, and data is published to an MQTT broker.
 
-#### Scenario 3: Multi-device Direction Finding
-1. **Step 1**: Deploy multiple devices running **Spectrum Alert** in different locations.
-2. **Step 2**: Configure each device to monitor the same ham bands.
-3. **Step 3**: Each device reports detected anomalies via MQTT.
-4. **Step 4**: Correlate the detected anomalies across multiple devices to triangulate the source of the transmission. Use this to identify and track illegal transmissions or unauthorized users.
+#### Scenario 3: Multi-receiver Direction Finding
+1. **Step 1**: Deploy nodes running SpectrumAlert in different locations, each with a
+   receiver carrying coordinates (`geo add-receiver`).
+2. **Step 2**: Run `geo calibrate --apply` to equalise the receivers against known
+   transmitters, then `geo fit-ple` for the propagation model.
+3. **Step 3**: Scan the frequency from every receiver (`geo scan`) or locate it
+   directly (`geo triangulate`). Remote nodes can be `rtl_tcp` servers.
+4. **Step 4**: Use the fix together with its confidence ellipse and fit-quality grade.
+   Use `/geolocate` for the map and likelihood surface.
+
+Accuracy is bounded by geometry and by multipath. Two receivers are
+underconstrained; three or more are needed for a meaningful fix, and a receiver
+under deep fade is reported as such rather than quietly skewing the result.
 
 ## Anomaly Detection and Heatmap
 
@@ -382,7 +554,10 @@ This feature makes **Spectrum Alert** a powerful tool for authorities or ham rad
 
 ### ToDo
 [x] Create menu
-[] Add support for multiple types of SDRs 
+[x] Add support for multiple SDR transports (local, rtl_tcp, manual override)
+[x] Multi-receiver geolocation with calibration and path-loss fitting
+[x] Band plans (PMR446, ISM, amateur, air band)
+[] Support for additional tuner families (LimeSDR, HackRF, RSP1A)
 
 ### License
 

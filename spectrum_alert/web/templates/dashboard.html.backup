@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpectrumAlert Dashboard</title>
+    <!-- Bootstrap 5.3.3, vendored so the dashboard works with no internet. -->
+    <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/cyberpunk.css">
+    <link rel="stylesheet" href="/static/css/ui-core.css">
+    <link rel="stylesheet" href="/static/css/geolocate.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet powers the emitter map in the workspace section below. -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    <!-- Leaflet.heat backs the likelihood-surface toggle; without it that control
+         appears to work and does nothing. -->
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+</head>
+<body>
+    <a class="sa-skip-link" href="#main-content">Skip to main content</a>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo-section">
+                <div class="skull-icon">
+                    <i class="fas fa-skull"></i>
+                </div>
+                <h1 class="title">SPECTRUM<span class="highlight">ALERT</span></h1>
+                <div class="subtitle">RF MONITORING SYSTEM</div>
+            </div>
+            <div class="status-indicators">
+                <div class="indicator" id="system-status" title="Backend health">
+                    <div class="led"></div>
+                    <span>SYSTEM</span>
+                </div>
+                <div class="indicator" id="monitor-status" title="Capture state">
+                    <div class="led"></div>
+                    <span>MONITOR</span>
+                </div>
+                <div class="indicator" id="threat-status" title="Highest anomaly severity seen">
+                    <div class="led"></div>
+                    <span>THREATS</span>
+                </div>
+                <div class="sa-toolbar" style="margin-left:12px">
+                    <a class="sa-icon-btn" href="#workspace" title="Jump to the analysis workspace"
+                       style="text-decoration:none;line-height:1">&#9678;</a>
+                    <button class="sa-icon-btn" id="theme-toggle" title="Toggle light / dark theme (T)"
+                            aria-label="Toggle theme"><span aria-hidden="true">&#9680;</span></button>
+                    <button class="sa-icon-btn" id="notify-mute" title="Mute notifications (M)"
+                            aria-label="Mute notifications" aria-pressed="false">&#128276;</button>
+                    <button class="sa-icon-btn" id="help-open" title="Keyboard shortcuts (?)"
+                            aria-label="Keyboard shortcuts">?</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Getting started.
+             The dashboard opens on nine panels with no indication of which one
+             to touch first, or that anything at all is required before the
+             analyses can run. This strip states the sequence, says why each
+             step matters, and reports whether it is ready yet. -->
+        <section class="sa-guide" id="sa-guide" aria-labelledby="sa-guide-title">
+            <div class="sa-guide__head">
+                <div class="sa-guide__intro">
+                    <h2 id="sa-guide-title" tabindex="-1">Getting started</h2>
+                    <p>Detect, then locate and identify. Three steps in order; each one
+                        reports whether it is ready and what is missing if it is not.</p>
+                </div>
+                <button class="sa-icon-btn" id="sa-guide-hide" type="button"
+                        title="Hide this guide (it stays available from the footer)"
+                        aria-label="Hide the getting-started guide">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <ol class="sa-guide__steps">
+                <li class="sa-step" id="sa-step-receivers">
+                    <span class="sa-step__num" aria-hidden="true">1</span>
+                    <div class="sa-step__body">
+                        <h3>Add receivers</h3>
+                        <p class="sa-step__why">Every receiver reports the level it hears at a
+                            known position. Triangulation needs at least two of them.</p>
+                        <p class="sa-step__status" id="sa-step-receivers-status">Checking…</p>
+                        <button class="sa-btn tiny" id="sa-guide-receivers" type="button">
+                            Add a receiver</button>
+                    </div>
+                </li>
+                <li class="sa-step" id="sa-step-monitor">
+                    <span class="sa-step__num" aria-hidden="true">2</span>
+                    <div class="sa-step__body">
+                        <h3>Monitor the spectrum</h3>
+                        <p class="sa-step__why">A running scan fills the charts and is what the
+                            detector reads. Nothing can be found while monitoring is stopped.</p>
+                        <p class="sa-step__status" id="sa-step-monitor-status">Not started</p>
+                        <button class="sa-btn tiny primary" id="sa-guide-monitor" type="button">
+                            Start monitoring</button>
+                    </div>
+                </li>
+                <li class="sa-step" id="sa-step-analyse">
+                    <span class="sa-step__num" aria-hidden="true">3</span>
+                    <div class="sa-step__body">
+                        <h3>Locate and identify</h3>
+                        <p class="sa-step__why">One capture in the workspace answers both
+                            questions: where the transmitter is, and which device it is.</p>
+                        <p class="sa-step__status" id="sa-step-analyse-status">Waiting for step 1</p>
+                        <button class="sa-btn tiny" id="sa-guide-workspace" type="button">
+                            Open the workspace</button>
+                    </div>
+                </li>
+            </ol>
+        </section>
+
+        <!-- Main Dashboard Grid -->
+        <main class="dashboard-grid" id="main-content">
+            <!-- System Overview -->
+            <section class="panel system-panel collapsible" data-collapsible="true" data-collapsible="true">
+                <div class="panel-header">
+                    <h2><i class="fas fa-microchip"></i> System status</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshSystemData()"
+                                title="Reload these figures now" aria-label="Reload system status">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                                    <button class="panel-toggle" type="button" aria-expanded="true" data-toggle="panel">Hide</button>
+</div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Host health and whether an SDR is available.
+                        Refreshes every few seconds.</p>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-label">CPU usage</div>
+                            <div class="metric-value" id="cpu-usage">--</div>
+                            <div class="metric-bar">
+                                <div class="metric-fill" id="cpu-bar"></div>
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Memory</div>
+                            <div class="metric-value" id="memory-usage">--</div>
+                            <div class="metric-bar">
+                                <div class="metric-fill" id="memory-bar"></div>
+                            </div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Uptime</div>
+                            <div class="metric-value" id="uptime">--</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Temperature</div>
+                            <div class="metric-value" id="temperature">--</div>
+                        </div>
+                    </div>
+                    <!-- Full-width row: the probe detail is a sentence, not a
+                         number, so it needs more room than a metric card. -->
+                    <div class="sdr-status-row">
+                        <span class="metric-label">SDR</span>
+                        <span class="metric-value" id="sdr-status">Checking…</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Spectrum Analysis -->
+            <section class="panel spectrum-panel collapsible" data-collapsible="true">
+                <div class="panel-header">
+                    <h2><i class="fas fa-broadcast-tower"></i> Spectrum analysis</h2>
+                    <!-- Shown only while the server is emitting synthetic data:
+                         simulated tones must never pass for hardware readings. -->
+                    <span class="sa-sim-badge" id="simulated-badge" hidden
+                          title="No SDR hardware is attached. Every reading on this panel is synthetic.">SIMULATED</span>
+                    <div class="panel-controls">
+                        <button class="btn-start" id="start-monitoring" onclick="startMonitoring()"
+                                title="Begin scanning (S)">
+                            <i class="fas fa-play"></i>
+                            Start
+                        </button>
+                        <button class="btn-stop" id="stop-monitoring" onclick="stopMonitoring()" style="display: none;"
+                                title="Stop scanning">
+                            <i class="fas fa-stop"></i>
+                            Stop
+                        </button>
+                        <label class="sa-sr-only" for="frequency-range">Band to scan</label>
+                        <select class="control-select" id="frequency-range">
+                            <option value="all">All bands</option>
+                            <option value="vhf">VHF</option>
+                            <option value="uhf">UHF</option>
+                            <option value="microwave">Microwave</option>
+                        </select>
+                                    <button class="panel-toggle" type="button" aria-expanded="true" data-toggle="panel">Hide</button>
+</div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Live power across the band. Start a scan, then read
+                        the peak frequency and noise floor below the chart.</p>
+                    <div class="chart-container" id="spectrum-chart-shell">
+                        <canvas id="spectrum-chart" role="img"
+                                aria-label="Power spectrum. Values are dBFS, not absolute dBm."></canvas>
+                    </div>
+                    <div class="sa-state sa-state--empty" id="spectrum-state" hidden>
+                        <div class="sa-state-title">No spectrum data</div>
+                        <div class="sa-state-detail">Start monitoring, or press S to scan.</div>
+                    </div>
+                    <div class="spectrum-stats">
+                        <div class="stat">
+                            <span class="stat-label">Peak frequency:</span>
+                            <span class="stat-value" id="peak-frequency">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Avg power (dBFS):</span>
+                            <span class="stat-value" id="avg-power">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Noise floor (dBFS):</span>
+                            <span class="stat-value" id="noise-floor">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">SNR:</span>
+                            <span class="stat-value" id="snr-value">--</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">RBW:</span>
+                            <span class="stat-value" id="rbw-value">--</span>
+                        </div>
+                    </div>
+                    <p class="sa-hint">Levels are dBFS: an RTL-SDR has no absolute power reference
+                        until a per-receiver calibration offset is applied. Do not read these as dBm.</p>
+                </div>
+            </section>
+
+            <!-- Anomaly Detection -->
+            <section class="panel anomaly-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Threat detection</h2>
+                    <div class="panel-controls">
+                        <button class="btn-toggle" id="auto-detect-toggle"
+                                title="Run the detector on every scan">
+                            <i class="fas fa-power-off"></i>
+                            <span>Auto</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Detections sorted by how serious they are, with a
+                        timeline once anything is found.</p>
+                    <div class="anomaly-summary">
+                        <div class="anomaly-counter critical">
+                            <div class="counter-value" id="critical-count">0</div>
+                            <div class="counter-label">CRITICAL</div>
+                        </div>
+                        <div class="anomaly-counter high">
+                            <div class="counter-value" id="high-count">0</div>
+                            <div class="counter-label">HIGH</div>
+                        </div>
+                        <div class="anomaly-counter medium">
+                            <div class="counter-value" id="medium-count">0</div>
+                            <div class="counter-label">MEDIUM</div>
+                        </div>
+                        <div class="anomaly-counter low">
+                            <div class="counter-value" id="low-count">0</div>
+                            <div class="counter-label">LOW</div>
+                        </div>
+                    </div>
+                    <div class="anomaly-chart-container" id="anomaly-chart-shell">
+                        <canvas id="anomaly-chart" role="img"
+                                aria-label="Detections over time by severity"></canvas>
+                    </div>
+                    <div class="sa-state sa-state--empty" id="anomaly-chart-state">
+                        <div class="sa-state-title">No detections yet</div>
+                        <div class="sa-state-detail">The timeline appears once something is detected.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recent Alerts -->
+            <section class="panel alerts-panel collapsible" data-collapsible="true">
+                <div class="panel-header">
+                    <h2><i class="fas fa-bell"></i> Recent alerts</h2>
+                    <div class="panel-controls sa-toolbar">
+                        <label class="sa-hint" for="alert-severity" style="margin:0">min
+                            <select id="alert-severity" class="control-select" style="padding:2px 4px">
+                                <option value="all">all</option>
+                                <option value="medium">medium+</option>
+                                <option value="high">high+</option>
+                                <option value="critical">critical</option>
+                            </select>
+                        </label>
+                        <button class="sa-icon-btn" id="export-alerts" title="Export alerts as CSV (E)"
+                                aria-label="Export alerts"><span aria-hidden="true">&#8595;</span></button>
+                        <button class="sa-icon-btn" id="ack-all-alerts" title="Acknowledge every alert in this list"
+                                aria-label="Acknowledge all alerts"><span aria-hidden="true">&#10003;</span></button>
+                        <button class="btn-clear" onclick="clearAlerts()" title="Clear all alerts"
+                                aria-label="Clear all alerts">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Everything detected this session. Each alert can be
+                        acknowledged, or sent to the workspace to locate.</p>
+                    <div class="alerts-list" id="alerts-list"></div>
+                    <div class="sa-state sa-state--empty" id="alerts-state">
+                        <div class="sa-state-title">No alerts</div>
+                        <div class="sa-state-detail">Nothing has been detected in this session.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Model Performance -->
+            <section class="panel model-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-brain"></i> Model status</h2>
+                    <div class="panel-controls">
+                        <button class="btn-retrain" onclick="retrainModel()"
+                                title="Train again using the settings in Model training">
+                            <i class="fas fa-sync"></i>
+                            Retrain
+                        </button>
+                                    <button class="panel-toggle" type="button" aria-expanded="true" data-toggle="panel">Hide</button>
+</div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">How the detector is performing right now. Retrain
+                        uses the settings you choose in Model training below.</p>
+                    <div class="model-stats">
+                        <div class="model-stat">
+                            <div class="stat-label">Accuracy</div>
+                            <div class="stat-value" id="model-accuracy">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">Confidence</div>
+                            <div class="stat-value" id="model-confidence">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">Last trained</div>
+                            <div class="stat-value" id="last-trained">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">Samples</div>
+                            <div class="stat-value" id="sample-count">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">Model type</div>
+                            <div class="stat-value" id="model-type-display">--</div>
+                        </div>
+                        <div class="model-stat">
+                            <div class="stat-label">Status</div>
+                            <div class="stat-value" id="deployment-status">--</div>
+                        </div>
+                    </div>
+                    <div class="model-chart-container">
+                        <canvas id="model-performance-chart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Configuration -->
+            <section class="panel config-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-cogs"></i> Configuration</h2>
+                    <div class="panel-controls">
+                        <button class="btn-save" onclick="saveConfig()"
+                                title="Save these settings in this browser">
+                            <i class="fas fa-save"></i>
+                            Save
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Detection sensitivity and scan behaviour. The Save
+                        button stores Basic in this browser; the Advanced and MQTT tabs send
+                        what you record there to the server.</p>
+                    <div class="config-tabs">
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" onclick="showTab('basic-config')">Basic</button>
+                            <button class="tab-btn" onclick="showTab('advanced-config')">Advanced</button>
+                            <button class="tab-btn" onclick="showTab('mqtt-config')">MQTT</button>
+                        </div>
+                        
+                        <div class="tab-content active" id="basic-config">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="threshold-slider">Detection threshold:</label>
+                                    <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.8">
+                                    <span class="slider-value" id="threshold-slider-value">0.8</span>
+                                </div>
+                                <div class="config-item">
+                                    <label for="frequency-range-config">Frequency range (MHz):</label>
+                                    <input type="text" id="frequency-range-config" placeholder="144-148" value="144-148">
+                                </div>
+                                <div class="config-item">
+                                    <label for="scan-interval">Scan interval (s):</label>
+                                    <input type="number" id="scan-interval" min="1" max="3600" value="5">
+                                </div>
+                                <div class="config-item">
+                                    <label for="strict-mode">
+                                        <input type="checkbox" id="strict-mode" checked disabled> Strict mode
+                                    </label>
+                                    <p class="sa-hint">Built into the detector and cannot be
+                                        switched off: a detection that only just clears the
+                                        threshold is dropped unless its SNR is 15 dB or better.</p>
+                                </div>
+                            </div>
+
+                            <details class="sa-disclose">
+                                <summary>What do these settings do?</summary>
+                                <dl class="sa-define">
+                                    <dt>Detection threshold</dt>
+                                    <dd>How strong a scan must score, from 0 to 1, before it is
+                                        reported as an alert. Raise it for fewer, more confident
+                                        alerts; lower it to catch fainter signals.</dd>
+                                    <dt>Frequency range</dt>
+                                    <dd>The band to scan, in MHz as start-end. The midpoint
+                                        becomes the receiver's centre frequency. The band chosen
+                                        in the Spectrum panel wins when monitoring is started.</dd>
+                                    <dt>Scan interval</dt>
+                                    <dd>Seconds between scans while monitoring. Shorter
+                                        intervals react faster and use more of the receiver.</dd>
+                                </dl>
+                            </details>
+                        </div>
+                        
+                        <div class="tab-content" id="advanced-config">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="dcExclude">DC exclude (Hz):</label>
+                                    <input type="number" id="dcExclude" value="8000" min="0" max="50000">
+                                </div>
+                                <div class="config-item">
+                                    <label for="edgeExclude">Edge exclude (Hz):</label>
+                                    <input type="number" id="edgeExclude" value="20000" min="0" max="100000">
+                                </div>
+                                <div class="config-item">
+                                    <label for="threshold">Advanced threshold:</label>
+                                    <input type="number" id="threshold" value="0.8" min="0.1" max="1.0" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="strictThreshold">
+                                        <input type="checkbox" id="strictThreshold" checked> Strict threshold mode
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label for="noveltyFilter">
+                                        <input type="checkbox" id="noveltyFilter"> Novelty filtering
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label for="continuousLearning">
+                                        <input type="checkbox" id="continuousLearning"> Continuous learning
+                                    </label>
+                                </div>
+                            </div>
+
+                            <details class="sa-disclose" open>
+                                <summary>Which of these are applied?</summary>
+                                <p class="sa-hint">None of the six fields above are read back by the
+                                    detector in this build. Its equivalents already run with fixed
+                                    defaults: DC and edge exclusions of 5 kHz and 10 kHz, novelty
+                                    filtering always on, and continuous learning handled by the
+                                    command-line trainer. They are stored with the advanced and
+                                    multi-band configuration so a later build can pick them up.</p>
+                            </details>
+                            
+                            <div class="band-config">
+                                <h4>Multi-band configuration</h4>
+                                <div class="config-grid">
+                                    <div class="config-item">
+                                        <label for="band1">Band 1 (MHz):</label>
+                                        <input type="text" id="band1" placeholder="144-148" value="144-148">
+                                    </div>
+                                    <div class="config-item">
+                                        <label for="band2">Band 2 (MHz):</label>
+                                        <input type="text" id="band2" placeholder="430-440" value="430-440">
+                                    </div>
+                                    <div class="config-item">
+                                        <label for="band3">Band 3 (MHz):</label>
+                                        <input type="text" id="band3" placeholder="88-108">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="advanced-controls">
+                                <button class="btn-primary" onclick="startAdvancedMonitoring()"
+                                        title="Record these advanced settings with the server">
+                                    <i class="fas fa-save"></i>
+                                    Record advanced settings
+                                </button>
+                                <button class="btn-secondary" onclick="startMultiBandMonitoring()"
+                                        title="Record the multi-band list with the server">
+                                    <i class="fas fa-broadcast-tower"></i>
+                                    Record multi-band settings
+                                </button>
+                            </div>
+                            <p class="sa-hint">Recording stores the configuration; it does not
+                                start a capture. Press Start monitoring in the Spectrum panel
+                                when you want to record signal.</p>
+                        </div>
+                        
+                        <div class="tab-content" id="mqtt-config">
+                            <div class="mqtt-status-section">
+                                <div class="status-display">
+                                    <span class="status-indicator" id="mqtt-status">●</span>
+                                    <span class="status-text">Broker settings: </span>
+                                    <span class="status-value" id="mqtt-connection-status">Not saved</span>
+                                </div>
+                            </div>
+                            <p class="sa-hint">Saving stores the broker, port and topic for this
+                                session and reports them to the dashboard. This build does not open
+                                a connection to the broker or publish messages.</p>
+                            
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="mqttBroker">Broker:</label>
+                                    <input type="text" id="mqttBroker" placeholder="localhost" value="localhost">
+                                </div>
+                                <div class="config-item">
+                                    <label for="mqttPort">Port:</label>
+                                    <input type="number" id="mqttPort" value="1883" min="1" max="65535">
+                                </div>
+                                <div class="config-item">
+                                    <label for="mqttTopic">Topic prefix:</label>
+                                    <input type="text" id="mqttTopic" placeholder="spectrum_alert" value="spectrum_alert">
+                                </div>
+                            </div>
+                            
+                            <div class="mqtt-controls">
+                                <button class="btn-primary" onclick="connectMQTT()">
+                                    <i class="fas fa-link"></i>
+                                    Save settings
+                                </button>
+                                <button class="btn-secondary" onclick="disconnectMQTT()">
+                                    <i class="fas fa-unlink"></i>
+                                    Forget settings
+                                </button>
+                                <button class="btn-test" onclick="testMQTT()">
+                                    <i class="fas fa-vial"></i>
+                                    Test event
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Model Training -->
+            <section class="panel training-panel collapsible" data-collapsible="true">
+                <div class="panel-header">
+                    <h2><i class="fas fa-graduation-cap"></i> Model training</h2>
+                    <div class="panel-controls">
+                        <button class="btn-train" id="train-model" onclick="trainModel()"
+                                title="Train a detector on the settings below">
+                            <i class="fas fa-play"></i>
+                            Train
+                        </button>
+                        <button class="btn-test" id="test-model" onclick="testModel()"
+                                title="Score the current model">
+                            <i class="fas fa-vial"></i>
+                            Test
+                        </button>
+                        <button class="btn-deploy" id="deploy-model" onclick="deployModel()"
+                                title="Make the current model the active one">
+                            <i class="fas fa-rocket"></i>
+                            Deploy
+                        </button>
+                                    <button class="panel-toggle" type="button" aria-expanded="true" data-toggle="panel">Hide</button>
+</div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Choose the settings, then train, test and deploy a
+                        detector. Model status above reports on whichever model is active.</p>
+                    <div class="training-status">
+                        <div class="status-item">
+                            <span class="status-label">Status:</span>
+                            <span class="status-value" id="training-status">Idle</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Progress:</span>
+                            <span class="status-value" id="training-progress">0%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="training-progress-bar"></div>
+                        </div>
+                        <div class="progress-text" id="training-stage">Ready to train</div>
+                    </div>
+                    
+                    <div class="training-config">
+                        <h4>Training settings</h4>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label for="model-type">Model type:</label>
+                                <select id="model-type" class="control-select">
+                                    <option value="isolation_forest">Isolation Forest</option>
+                                    <option value="autoencoder">Autoencoder</option>
+                                    <option value="svm">One-Class SVM</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="dataset-select">Dataset:</label>
+                                <select class="control-select" id="dataset-select">
+                                    <option value="all">All data</option>
+                                    <option value="recent">Recent (24h)</option>
+                                    <option value="custom">Custom range</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="training-epochs">Epochs:</label>
+                                <input type="number" id="training-epochs" min="10" max="1000" value="100">
+                                <span class="sa-hint">Autoencoder only; the other models ignore it.</span>
+                            </div>
+                            <div class="config-item">
+                                <label for="contamination">Contamination:</label>
+                                <input type="range" id="contamination" min="0.01" max="0.5" step="0.01" value="0.1">
+                                <span class="slider-value" id="contamination-value">0.1</span>
+                                <span class="sa-hint">Expected share of anomalous rows in the
+                                    training data, 1&ndash;50%.</span>
+                            </div>
+                        </div>
+                        <details class="sa-disclose">
+                            <summary>How do these choices affect training?</summary>
+                            <dl class="sa-define">
+                                <dt>Model type</dt>
+                                <dd>Isolation Forest is the default and the fastest to train.
+                                    Autoencoder trains a small reconstruction network. One-Class
+                                    SVM learns a boundary around normal behaviour.</dd>
+                                <dt>Dataset</dt>
+                                <dd>Which recorded scans to learn from. Training needs at least
+                                    ten samples.</dd>
+                                <dt>Epochs</dt>
+                                <dd>Training passes for the autoencoder. Higher is slower and
+                                    more prone to overfitting small datasets.</dd>
+                                <dt>Contamination</dt>
+                                <dd>Tells the model what fraction of the training rows it should
+                                    treat as outliers. Set it close to the alert rate you expect.</dd>
+                            </dl>
+                        </details>
+                    </div>
+                    
+                    <div class="selected-dataset" id="selected-dataset-display" hidden>
+                        <span class="sa-muted">Selected dataset:</span>
+                        <strong id="dataset-name-display">-</strong>
+                        <span class="sa-badge" id="dataset-type-display"></span>
+                        <button class="sa-icon-btn" type="button"
+                                onclick="clearSelectedDataset()" title="Clear selection"
+                                aria-label="Clear selected dataset">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+
+                    <div class="training-progress-detailed" id="training-progress-display" hidden>
+                        <div class="progress-row">
+                            <span class="stat-label">Dataset</span>
+                            <span id="training-dataset" class="stat-value">Default</span>
+                        </div>
+                        <div class="progress-row">
+                            <span class="stat-label">Status</span>
+                            <span id="training-status-text" class="stat-value">Ready</span>
+                        </div>
+                        <div class="progress-row">
+                            <span class="stat-label">Model</span>
+                            <span id="training-model-type" class="stat-value">-</span>
+                        </div>
+                        <div class="progress-row">
+                            <span class="stat-label">Progress</span>
+                            <span id="training-progress-percentage" class="stat-value">0%</span>
+                        </div>
+                        <div class="metric-bar">
+                            <div class="metric-fill" id="training-progress-bar-detailed"
+                                 style="width:0%"></div>
+                        </div>
+                        <p class="sa-hint" id="training-metrics" style="margin-top:6px"></p>
+                    </div>
+
+                    <div class="training-results" id="training-results" style="display: none;">
+                        <h4>Last training results</h4>
+                        <div class="results-grid">
+                            <div class="result-item">
+                                <span class="result-label">Accuracy:</span>
+                                <span class="result-value" id="result-accuracy">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Precision:</span>
+                                <span class="result-value" id="result-precision">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Recall:</span>
+                                <span class="result-value" id="result-recall">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">F1:</span>
+                                <span class="result-value" id="result-f1">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Loss:</span>
+                                <span class="result-value" id="result-loss">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Training Time:</span>
+                                <span class="result-value" id="result-time">--</span>
+                            </div>
+                            <div class="result-item">
+                                <span class="result-label">Samples:</span>
+                                <span class="result-value" id="result-samples">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real-time Analytics -->
+            <section class="panel analytics-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-chart-line"></i> Real-time analytics</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshAnalytics()"
+                                title="Reload these figures now" aria-label="Reload analytics">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh
+                        </button>
+                        <label class="sa-sr-only" for="analytics-timeframe">Period</label>
+                        <select class="control-select" id="analytics-timeframe">
+                            <option value="1h">Last hour</option>
+                            <option value="24h" selected>Last 24 hours</option>
+                            <option value="7d">Last 7 days</option>
+                            <option value="30d">Last 30 days</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">Counts and trends for the period chosen above, with
+                        a timeline and a frequency distribution below.</p>
+                    <div class="analytics-grid">
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-eye"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Detections</div>
+                                <div class="metric-value" id="detections-count">--</div>
+                                <div class="metric-change" id="detections-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Anomalies</div>
+                                <div class="metric-value" id="anomalies-count">--</div>
+                                <div class="metric-change" id="anomalies-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-signal"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Avg Signal</div>
+                                <div class="metric-value" id="avg-signal">--</div>
+                                <div class="metric-change" id="signal-change">--</div>
+                            </div>
+                        </div>
+                        <div class="analytics-metric">
+                            <div class="metric-icon"><i class="fas fa-crosshairs"></i></div>
+                            <div class="metric-info">
+                                <div class="metric-label">Accuracy</div>
+                                <div class="metric-value" id="realtime-accuracy">--</div>
+                                <div class="metric-change" id="accuracy-change">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="analytics-charts">
+                        <div class="chart-container">
+                            <canvas id="detections-timeline-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="frequency-distribution-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Management -->
+            <section class="panel data-panel collapsible" data-collapsible="true">
+                <div class="panel-header">
+                    <h2><i class="fas fa-database"></i> Data management</h2>
+                    <div class="panel-controls">
+                        <button class="btn-refresh" onclick="refreshDataStats()"
+                                title="Reload these figures now" aria-label="Reload data statistics">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh
+                        </button>
+                        <button class="btn-collect" onclick="collectData()"
+                                title="Record samples to disk with the settings below">
+                            <i class="fas fa-download"></i>
+                            Collect
+                        </button>
+                                    <button class="panel-toggle" type="button" aria-expanded="true" data-toggle="panel">Hide</button>
+</div>
+                </div>
+                <div class="panel-content">
+                    <p class="sa-panel-desc">What has been recorded so far, and the datasets
+                        that feed Model training.</p>
+                    <div class="data-stats">
+                        <div class="stat-item">
+                            <div class="stat-label">Total files</div>
+                            <div class="stat-value" id="data-files">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Samples</div>
+                            <div class="stat-value" id="data-samples">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Size (MB)</div>
+                            <div class="stat-value" id="data-size">--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Last updated</div>
+                            <div class="stat-value" id="data-updated">--</div>
+                        </div>
+                    </div>
+                    
+                    <div class="data-actions">
+                        <details class="sa-disclose">
+                            <summary>Record a capture</summary>
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="collect-duration">Duration (minutes):</label>
+                                    <input type="number" id="collect-duration" min="1" max="1" value="1">
+                                    <span class="sa-hint">The server records for at most one
+                                        minute per request.</span>
+                                </div>
+                                <div class="config-item">
+                                    <label for="collect-frequency">Frequency range (MHz):</label>
+                                    <input type="text" id="collect-frequency" placeholder="88-108 MHz" value="88-108">
+                                </div>
+                                <div class="config-item">
+                                    <label for="sample-rate">Sample rate:</label>
+                                    <select id="sample-rate" class="control-select">
+                                        <option value="1024000">1.024 MHz</option>
+                                        <option value="2048000" selected>2.048 MHz</option>
+                                        <option value="2400000">2.4 MHz</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    
+                    <div class="data-browse">
+                        <h4>Dataset management</h4>
+                        <div class="dataset-controls">
+                            <button class="btn-browse" onclick="loadDataFiles()">
+                                <i class="fas fa-folder-open"></i> Browse Files
+                            </button>
+                            <button class="btn-analyze" onclick="analyzeSelectedData()">
+                                <i class="fas fa-chart-line"></i> Analyze
+                            </button>
+                            <button class="sa-icon-btn" id="refresh-data-files" title="Reload the file list"
+                                    aria-label="Reload the file list"><span aria-hidden="true">&#8635;</span></button>
+                            <button class="sa-icon-btn" id="show-datasets" title="Choose a training dataset"
+                                    aria-label="Choose a training dataset"><span aria-hidden="true">&#128190;</span></button>
+                        </div>
+                        <div class="data-file-list" id="data-file-list">
+                            <div class="sa-state">
+                                <div class="sa-spinner" aria-hidden="true"></div>
+                                <div class="sa-state-title">Loading data files</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Analysis workspace: receiver roster, waterfall, location and device
+             identification. Same page as the panels above, so one capture feeds
+             every part of the workflow. -->
+        <section class="sa-section" id="workspace" aria-label="Geolocation and device identification">
+          <div class="sa-header">
+            <div>
+              <h1>Analysis workspace</h1>
+              <p class="sa-section-desc">One capture answers both questions: where the
+                transmitter is, and which device it is. The waterfall, the map and the
+                fingerprint all read from the receiver you select.</p>
+            </div>
+            <span id="sa-tools" class="sa-hint"></span>
+          </div>
+          {% include "_workspace.html" %}
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="version">v1.1.0</span>
+                <span class="separator">|</span>
+                <span id="sa-conn" class="sa-conn" title="Live update connection"></span>
+                <span class="separator">|</span>
+                <a href="#workspace" class="sa-hint">workspace</a>
+                <span class="separator">|</span>
+                <button type="button" class="sa-link-btn" id="sa-guide-show" hidden>show the getting-started guide</button>
+            </div>
+            <div class="footer-right">
+                <span class="timestamp" id="current-time">--:--:--</span>
+                <span class="separator">|</span>
+                <span class="uptime" id="session-uptime" title="Session uptime">00:00:00</span>
+            </div>
+        </footer>
+    </div>
+
+    <div class="modal-overlay" id="file-analysis-modal" role="dialog" aria-modal="true"
+         aria-labelledby="file-analysis-title" style="display:none">
+        <div class="analysis-modal" role="document">
+            <h3 id="file-analysis-title">File analysis</h3>
+            <div id="file-analysis-body"></div>
+            <div class="sa-row" style="justify-content:flex-end;margin-top:16px">
+                <button class="btn-secondary" id="file-analysis-export" type="button">Export JSON</button>
+                <button class="btn-primary" id="file-analysis-close" type="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="dataset-selector-modal" role="dialog" aria-modal="true"
+         aria-labelledby="dataset-selector-title" style="display:none">
+        <div class="dataset-modal" role="document">
+            <h3 id="dataset-selector-title">Select training dataset</h3>
+            <p class="sa-hint" id="dataset-modal-type"></p>
+            <div id="dataset-list"></div>
+            <div class="sa-row" style="justify-content:flex-end;margin-top:16px">
+                <button class="btn-secondary" id="dataset-modal-clear" type="button">Clear selection</button>
+                <button class="btn-primary" id="dataset-modal-confirm" type="button">Use dataset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Used by the workspace controller for calibration and fit prompts. -->
+    <div class="sa-modal" id="sa-modal" role="dialog" aria-modal="true"
+         aria-labelledby="sa-modal-title">
+      <div class="box">
+        <div id="sa-modal-title" role="status" style="margin-bottom:8px"></div>
+        <div id="sa-modal-body" style="color:var(--sa-muted);font-size:12px"></div>
+        <div class="sa-row" style="margin-top:12px;justify-content:flex-end">
+          <button class="sa-btn" id="sa-modal-cancel">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sa-help-overlay" id="sa-help" role="dialog" aria-modal="true" aria-labelledby="sa-help-title">
+        <div class="sa-help">
+            <h2 id="sa-help-title">Keyboard shortcuts</h2>
+            <div id="sa-help-body"></div>
+            <div class="sa-row" style="justify-content:flex-end;margin-top:16px">
+                <button class="sa-btn" id="help-close">Close (Esc)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!--
+      websocket.js and gui-enhancements.js are intentionally NOT loaded.
+
+      websocket.js opened a second socket and then bailed on every message
+      because it required a `window.dashboard` object nothing ever created, so
+      all five of its handlers were inert. dashboard.js now owns the single
+      connection.
+
+      gui-enhancements.js reassigned window.loadDataFiles to a variant that
+      wrote a *second* file list into the same panel, and read `file.created_at`
+      when the API sends `created` (every date rendered "Invalid Date").
+
+      enhanced-features.js contributed only a stylesheet for the file list and
+      one call that duplicated existing slider wiring; its spectrum-visualisation
+      subsystem was never called and generated mock data if it had been.
+
+      The files are kept in the tree for reference but nothing loads them.
+    -->
+    <script src="/static/vendor/bootstrap/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/ui-core.js"></script>
+    <!-- geolocate.js is IIFE-wrapped, so it adds no globals and cannot collide
+         with the dashboard's; it drives the workspace section only. -->
+    <script src="/static/js/geolocate.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+    <script src="/static/js/dashboard-extras.js"></script>
+    <script>
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+        });
+    </script>
+</body>
+</html>
