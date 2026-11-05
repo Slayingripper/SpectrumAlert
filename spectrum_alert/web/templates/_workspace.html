@@ -1,0 +1,352 @@
+<!-- Shared analysis workspace.
+     The receiver roster, waterfall, locate and identify panels used to live on
+     their own page. They are included by dashboard.html so there is one UI:
+     the same roster and the same capture drive both location and identity. -->
+<div class="row g-2 sa-layout">
+
+  <!-- Left rail: the roster that feeds both views, plus the add/calibration
+       forms. Collapses on narrow screens so the analysis keeps the width. -->
+  <div class="col-12 col-xxl-2 col-xl-3 sa-rail">
+<div>
+
+<section class="sa-panel" data-guide-panel="receivers">
+<h2>Receivers</h2>
+<div id="sa-receiver-list"></div>
+<div class="sa-row" style="margin-top:8px">
+  <button class="sa-btn danger tiny" id="sa-clear-receivers">Clear all</button>
+  <span class="sa-hint" id="sa-receiver-count"></span>
+</div>
+</section>
+
+<section class="sa-panel" data-guide-panel="receivers">
+<h2><span id="sa-form-title">Add receiver</span>
+  <button class="sa-btn tiny" id="sa-form-cancel" hidden>Cancel</button>
+</h2>
+<!-- One grid, not three flex rows. Each row used to wrap independently against
+     its own flex-basis, so the same form rendered five different field widths
+     (226 / 122 / 109 / 96px) and no two fields in a column lined up. -->
+<div class="sa-form-grid">
+  <div class="sa-field sa-field--wide">
+    <label for="sa-name">Name</label>
+    <input class="sa-input" id="sa-name" placeholder="Home / Hill / Remote">
+  </div>
+  <div class="sa-field sa-field--wide">
+    <label for="sa-mode">Mode</label>
+    <select class="sa-select" id="sa-mode">
+      <option value="local">local USB</option>
+      <option value="rtltcp">rtl_tcp remote</option>
+    </select>
+  </div>
+  <div class="sa-field">
+    <label for="sa-lat">Latitude</label>
+    <input class="sa-input" id="sa-lat" type="number" step="any" placeholder="35.13">
+  </div>
+  <div class="sa-field">
+    <label for="sa-lon">Longitude</label>
+    <input class="sa-input" id="sa-lon" type="number" step="any" placeholder="33.31">
+  </div>
+  <div class="sa-field sa-field-group sa-field--wide" data-modes="local">
+    <label for="sa-device">Device index</label>
+    <input class="sa-input" id="sa-device" type="number" min="0" value="0">
+  </div>
+  <div class="sa-field sa-field-group sa-field--wide" data-modes="rtltcp" hidden>
+    <label for="sa-host">Host</label>
+    <input class="sa-input" id="sa-host" placeholder="10.0.0.5">
+  </div>
+  <div class="sa-field sa-field-group sa-field--wide" data-modes="rtltcp" hidden>
+    <label for="sa-port">Port</label>
+    <input class="sa-input" id="sa-port" type="number" value="1234">
+  </div>
+  <div class="sa-field">
+    <label for="sa-gain">Gain dB</label>
+    <input class="sa-input" id="sa-gain" type="number" step="any" placeholder="auto">
+  </div>
+  <div class="sa-field">
+    <label for="sa-ppm">PPM</label>
+    <input class="sa-input" id="sa-ppm" type="number" step="any" placeholder="0">
+  </div>
+  <div class="sa-field sa-field--wide">
+    <label for="sa-manual">Manual dBFS</label>
+    <input class="sa-input" id="sa-manual" type="number" step="any" placeholder="—">
+  </div>
+</div>
+<p class="sa-hint">PPM correction matters: at 145 MHz an uncorrected ±50 ppm crystal is
+  ±7 kHz, enough to miss a narrow channel entirely. Manual dBFS pins the receiver to a
+  fixed level when it cannot be reached.</p>
+
+<div class="sa-row" style="margin-top:8px">
+  <button class="sa-btn primary sa-btn--grow" id="sa-save-receiver">Add receiver</button>
+</div>
+</section>
+
+<section class="sa-panel" data-guide-panel="receivers">
+<h2>Calibration</h2>
+<p class="sa-hint">Offsets correct the level each receiver reports so readings from
+  different radios can be compared. Needs at least one enabled receiver; a preview
+  shows the numbers before they are applied.</p>
+<div class="sa-row">
+  <button class="sa-btn sa-btn--grow" id="sa-preview-calibration">Preview offsets</button>
+  <button class="sa-btn sa-btn--grow" id="sa-apply-calibration">Apply offsets</button>
+</div>
+<div class="sa-row" style="margin-top:6px">
+  <button class="sa-btn sa-btn--grow" id="sa-fit-ple">Fit path-loss exponent</button>
+</div>
+<div id="sa-calibration-table" style="margin-top:10px"></div>
+<div class="sa-row" style="margin-top:6px">
+  <button class="sa-btn danger tiny" id="sa-clear-calibration">Clear all offsets</button>
+</div>
+</section>
+
+  </div>
+
+  </div>
+
+  <div class="col-12 col-xxl-10 col-xl-9 sa-workspace">
+
+<section class="sa-panel" data-guide-panel="monitor triangulate fingerprint">
+<h2>
+  <span>Spectrum waterfall</span>
+  <span class="sa-toolbar">
+    <button class="sa-btn tiny" id="sa-scan-once">Scan once</button>
+    <button class="sa-btn tiny primary" id="sa-toggle-live">Start live</button>
+    <button class="sa-icon-btn" id="sa-export-spectrum" title="Export the current scan as CSV (E)" aria-label="Export current scan">
+      <span aria-hidden="true">↓</span>
+    </button>
+  </span>
+</h2>
+
+<div class="sa-form-grid">
+  <div class="sa-field">
+    <label for="sa-center">Centre Hz</label>
+    <input class="sa-input" id="sa-center" type="number" step="1" value="433920000">
+  </div>
+  <div class="sa-field">
+    <label for="sa-span">Span Hz</label>
+    <input class="sa-input" id="sa-span" type="number" step="1" value="2000000">
+  </div>
+  <div class="sa-field">
+    <label for="sa-integration">Integration s</label>
+    <input class="sa-input" id="sa-integration" type="number" step="0.1" value="0.5">
+  </div>
+  <div class="sa-field">
+    <label for="sa-scan-receiver">Receiver</label>
+    <select class="sa-select" id="sa-scan-receiver"></select>
+  </div>
+  <div class="sa-field">
+    <label for="sa-db-floor">Display floor dBFS</label>
+    <input class="sa-input" id="sa-db-floor" type="number" step="1" value="-120">
+  </div>
+</div>
+
+<div class="sa-waterfall-wrap" style="margin-top:8px" id="sa-waterfall-shell">
+  <canvas id="sa-waterfall" width="960" height="240" role="img"
+          aria-label="Live waterfall: power in dBFS over time across the tuned span."></canvas>
+  <div class="sa-axis"><span id="sa-axis-lo">—</span><span id="sa-axis-mid"></span><span id="sa-axis-hi">—</span></div>
+  <!-- Inside the positioned wrapper, otherwise the absolutely
+       positioned readout anchors to the page instead of the chart. -->
+  <div class="sa-readout" id="sa-cursor-readout" aria-hidden="true"></div>
+</div>
+
+<div class="sa-readout-row" style="padding:8px 0 0">
+  <span>Picked: <b id="sa-picked">—</b></span>
+  <span>Peak: <b id="sa-peak">—</b></span>
+  <span>Noise floor: <b id="sa-floor">—</b></span>
+  <span>RBW: <b id="sa-rbw">—</b></span>
+  <span>Source: <b id="sa-source">—</b></span>
+  <span class="sa-freshness" id="sa-freshness"></span>
+</div>
+
+<div class="sa-state sa-state--empty" id="sa-scan-state" hidden>
+  <div class="sa-state-title">No scan yet</div>
+  <div class="sa-state-detail">Pick a receiver and press “Scan once”, or start the live waterfall.</div>
+</div>
+
+<div class="sa-table-scroll" id="sa-peaks-wrap" hidden>
+  <table class="sa-peak-table">
+    <thead><tr><th>#</th><th>Frequency</th><th>Level dBFS</th><th>Above floor</th></tr></thead>
+    <tbody id="sa-peaks"></tbody>
+  </table>
+</div>
+
+<div class="sa-row sa-btn-row">
+  <div class="sa-field sa-field--wide">
+    <label for="sa-target-freq">Target frequency Hz</label>
+    <input class="sa-input" id="sa-target-freq" type="number" step="1" value="433920000">
+  </div>
+  <button class="sa-btn" id="sa-set-target">Use centre</button>
+  <button class="sa-btn primary sa-btn--grow" id="sa-triangulate">Triangulate</button>
+  <button class="sa-icon-btn" id="sa-export-fix" title="Export the fix as JSON (E)" aria-label="Export fix">
+    <span aria-hidden="true">↓</span>
+  </button>
+</div>
+<!-- What triangulation needs, and how much of it exists right now. Without
+     this the first press fails with a server error and no clue why. -->
+<p class="sa-req" id="sa-triangulate-req" data-state="pending">
+  <span id="sa-triangulate-req-text">Triangulation needs at least 2 enabled receivers.
+    Checking the roster…</span>
+  <button class="sa-link-btn" id="sa-req-add-receiver" type="button">Add a receiver</button>
+</p>
+<p class="sa-hint">Click the waterfall to set the target frequency. Hover to read exact values.</p>
+</section>
+
+    <div class="row g-2 sa-merged">
+      <div class="col-12 col-lg-7">
+<section class="sa-panel" data-guide-panel="triangulate analyse">
+<h2>
+  <span>Emitter map</span>
+  <span>
+    <label class="sa-hint" style="margin:0">
+      <input type="checkbox" id="sa-show-ellipse" checked> ellipse
+      <input type="checkbox" id="sa-show-heatmap"> likelihood
+      <input type="checkbox" id="sa-show-history" checked> history
+    </label>
+  </span>
+</h2>
+<div id="sa-map"></div>
+<div class="sa-legend">
+  <span><i style="background:var(--sa-good)"></i>good fit</span>
+  <span><i style="background:var(--sa-fair)"></i>fair</span>
+  <span><i style="background:var(--sa-poor)"></i>poor</span>
+  <span><i style="background:var(--sa-accent)"></i>receiver</span>
+</div>
+  <div class="sa-toolbar sa-subhead-row">
+    <h3 class="sa-subhead">Receiver readings</h3>
+  <span class="sa-toolbar__spacer"></span>
+  <button class="sa-icon-btn" id="sa-export-readings" title="Export receiver readings as CSV (X)"
+          aria-label="Export receiver readings">
+    <span aria-hidden="true">↓</span>
+  </button>
+</div>
+<div id="sa-estimate" style="margin-top:0"></div>
+      </div>
+
+      <div class="col-12 col-lg-5">
+<section class="sa-panel" data-guide-panel="fingerprint analyse">
+<h2>
+  <span>Identify transmitter</span>
+  <span class="sa-toolbar">
+    <label class="sa-hint" for="sa-fp-captures" style="margin:0">captures</label>
+    <input class="sa-input" id="sa-fp-captures" type="number" min="1" max="16"
+           value="4" style="width:64px" aria-label="Captures averaged per signature">
+    <button class="sa-btn tiny primary" id="sa-fp-capture">Capture &amp; identify</button>
+    <button class="sa-icon-btn" id="sa-fp-export" title="Export the signature as JSON (F)"
+            aria-label="Export signature"><span aria-hidden="true">&darr;</span></button>
+  </span>
+</h2>
+
+<p class="sa-req" id="sa-fp-req" data-state="pending"><span id="sa-fp-req-text">Fingerprinting
+  reads the raw IQ stream from the selected receiver. Checking…</span></p>
+<p class="sa-hint">Fingerprinting reads the raw IQ stream, not the spectrum.
+  It averages several short captures because one capture carries the
+  receiver's own noise. A receiver pinned to a Manual dBFS level has no
+  samples to read and is refused.</p>
+
+<div class="sa-state" id="sa-fp-state" hidden>
+  <div class="sa-state-detail"></div>
+</div>
+
+<div id="sa-fp-verdict" hidden>
+  <div class="sa-verdict" id="sa-fp-verdict-card">
+    <div class="sa-verdict__status" id="sa-fp-status">—</div>
+    <div class="sa-verdict__label" id="sa-fp-label"></div>
+    <div class="sa-verdict__meta" id="sa-fp-meta"></div>
+    <p class="sa-verdict__reason" id="sa-fp-reason"></p>
+  </div>
+
+  <div class="sa-toolbar sa-subhead-row">
+    <h3 class="sa-subhead">
+      Feature comparison</h3>
+    <span class="sa-toolbar__spacer"></span>
+    <span class="sa-hint" id="sa-fp-features-note"></span>
+  </div>
+  <div class="sa-table-scroll">
+    <table class="sa-peak-table">
+      <thead><tr><th>#</th><th>Feature</th><th>This capture</th>
+        <th>Nearest reference</th><th>Difference</th></tr></thead>
+      <tbody id="sa-fp-features"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="sa-toolbar sa-subhead-row">
+    <h3 class="sa-subhead">
+      Save as a reference</h3>
+</div>
+<div class="sa-form-grid">
+  <div class="sa-field">
+    <label for="sa-fp-new-label">Label</label>
+    <input class="sa-input" id="sa-fp-new-label" placeholder="Base station roof">
+  </div>
+  <div class="sa-field">
+    <label for="sa-fp-vendor">Vendor</label>
+    <input class="sa-input" id="sa-fp-vendor" placeholder="optional">
+  </div>
+  <div class="sa-field">
+    <label for="sa-fp-model">Model</label>
+    <input class="sa-input" id="sa-fp-model" placeholder="optional">
+  </div>
+  <button class="sa-btn" id="sa-fp-enrol" disabled>Save reference</button>
+</div>
+<p class="sa-hint" id="sa-fp-enrol-hint">Capture a signature first.</p>
+
+<div class="sa-toolbar sa-subhead-row">
+    <h3 class="sa-subhead">
+      Reference library</h3>
+  <span class="sa-toolbar__spacer"></span>
+  <span class="sa-hint" id="sa-fp-library-count"></span>
+</div>
+<div class="sa-table-scroll">
+  <table class="sa-peak-table">
+    <thead><tr><th>Label</th><th>Vendor / model</th><th>Frequency</th>
+      <th>Samples</th><th>Captured</th><th></th></tr></thead>
+    <tbody id="sa-fp-library"></tbody>
+  </table>
+</div>
+</section>
+      </div>
+
+    </div>
+
+    <div class="row g-3 sa-lower">
+      <div class="col-12 col-xl-7">
+<section class="sa-panel" data-guide-panel="anomalies">
+<h2>
+  <span>Log</span>
+  <span class="sa-toolbar">
+    <button class="sa-btn tiny" id="sa-export-log" title="Export the log">Export log</button>
+    <button class="sa-btn tiny" id="sa-clear-log">Clear</button>
+  </span>
+</h2>
+<div class="sa-log" id="sa-log" role="log" aria-live="polite" aria-atomic="false"></div>
+</section>
+
+      </div>
+
+      <!-- The PMR scanner sits beside the log. It used to occupy 7 of the 12
+           columns with nothing in the remaining 5, so the bottom third of the
+           workspace had a permanent hole down its right-hand side. -->
+      <div class="col-12 col-xl-5">
+<section class="sa-panel" data-guide-panel="anomalies">
+<h2>
+  <span>PMR446 channel scanner</span>
+  <span class="sa-toolbar">
+    <button class="sa-btn tiny" id="sa-notify-mute" title="Mute notifications (M)">Notifications</button>
+    <button class="sa-btn tiny primary" id="sa-toggle-pmr">Start</button>
+  </span>
+</h2>
+<div class="sa-pmr-grid" id="sa-pmr-grid"></div>
+<div class="sa-readout-row">
+  <span id="sa-pmr-status">idle</span>
+</div>
+<p class="sa-hint">A channel needs most receivers to report it at least 20 dB above their
+  own noise floor before it counts as active. More than four channels active at once is
+  broadband interference and is discarded rather than reported.</p>
+</section>
+      </div>
+    </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>

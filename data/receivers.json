@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "updated_at": "2026-10-09T06:14:17.408790",
+  "receivers": [
+    {
+      "id": "4d6897ae-6806-41b4-816e-6225bf2493b6",
+      "name": "est",
+      "mode": "local",
+      "lat": 0.0,
+      "lon": 0.0,
+      "deviceIndex": 0,
+      "host": null,
+      "port": null,
+      "gainDb": null,
+      "ppmError": null,
+      "bandwidthHz": null,
+      "manualRssiDb": null,
+      "enabled": true,
+      "altitudeM": null,
+      "notes": null,
+      "createdAt": "2026-10-09T06:14:17.408759"
+    }
+  ]
+}

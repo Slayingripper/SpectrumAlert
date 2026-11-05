@@ -1,3 +1,0 @@
-"""
-Utility modules for SpectrumAlert
-"""

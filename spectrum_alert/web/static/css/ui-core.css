@@ -1,0 +1,1332 @@
+/* ============================================================================
+   SpectrumAlert UI foundation
+   ----------------------------------------------------------------------------
+   Layered on top of cyberpunk.css. Everything here is additive, so the
+   original stylesheet keeps working unchanged.
+
+   Contents:
+     1. Theme tokens (dark default + light), so the dashboard is readable in a
+        bright room instead of being a black rectangle.
+     2. Accessibility: visible focus rings, reduced-motion, screen-reader helpers.
+     3. State components: loading, empty and error states. Without these every
+        panel sits on "--" forever and a failed request is indistinguishable
+        from "genuinely nothing to report".
+     4. Notification system with severity filtering and a stacking cap.
+     5. Keyboard shortcut help overlay.
+      6. Tooltip / crosshair readout for charts.
+      7. Responsive and touch adjustments.
+      8. Guided workflow: the getting-started strip, per-panel descriptions,
+         dependency cues and disclosures for settings the detector does not use.
+   ========================================================================== */
+
+:root {
+    /* Spacing scale, used by new components so spacing is consistent. */
+    --sa-space-1: 4px;
+    --sa-space-2: 8px;
+    --sa-space-3: 12px;
+    --sa-space-4: 16px;
+    --sa-space-5: 24px;
+    --sa-space-6: 32px;
+
+    --sa-radius: 4px;
+    --sa-radius-lg: 8px;
+
+    /* Minimum comfortable touch target. 44px is the iOS HIG figure; 40px is a
+       reasonable floor for a dense operator tool. */
+    --sa-touch-target: 40px;
+
+    --sa-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+        Menlo, Consolas, monospace;
+    --sa-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, "Noto Sans", sans-serif;
+    --sa-z-toast: 9000;
+    --sa-z-overlay: 9500;
+    --sa-z-help: 9800;
+
+    /* Status colours, referenced by both the new components and the JS.
+       Each is drawn as text on --bg-tertiary (#1b212b) in the getting-started
+       steps, so each clears 4.5:1 there. */
+    --sa-critical: #ff7b72;
+    --sa-high: #ff9e64;
+    --sa-medium: #e3b341;
+    --sa-low: #6cb6ff;
+    --sa-ok: #56d364;
+    --sa-info: #6cb6ff;
+}
+
+/* ---------------------------------------------------------------- theme --- */
+
+html[data-theme="light"] {
+    --bg-primary: #f3f5f9;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f7f9fc;
+    /* The hover surface was only ever defined for the dark palette, so every
+       button hover in light mode painted dark navy under dark text and the
+       control looked like a black hole. */
+    --bg-raised: #eef2f8;
+    --text-primary: #101828;
+    --text-secondary: #44536a;
+    --text-muted: #63718a;
+    --border-color: #e1e7f0;
+    --border-strong: #c5cfdd;
+    --accent-red: #d1242f;
+    /* Darker than --accent-red so red labels clear 4.5:1 on the light
+       tertiary surface, where the disclosures and requirement cues sit. */
+    --accent-red-text: #a40e26;
+    /* #1d4ed8 clears 4.5:1 as text on both --bg-secondary and --bg-tertiary. */
+    --accent-cyan: #1d4ed8;
+    --accent-purple: #6d3fd1;
+    --success: #18794e;
+    --warning: #9a6200;
+    --danger: #d1242f;
+    --accent: #1d4ed8;
+    --accent-soft: rgba(29, 78, 216, 0.09);
+
+    --sa-input-bg: #ffffff;
+    --sa-chart-bg: #ffffff;
+    --sa-control-bg: #ffffff;
+    --sa-control-bg-hover: #f2f6fb;
+
+    /* Filled accent/severity surfaces are dark in light mode, so their text is
+       white; dark mode uses near-black on the lighter fills. */
+    --on-accent: #ffffff;
+    --on-success: #ffffff;
+    --on-warning: #ffffff;
+    --on-danger: #ffffff;
+
+    --sa-critical: #d1242f;
+    --sa-high: #b54708;
+    --sa-medium: #8a5a00;
+    --sa-low: #1d4ed8;
+    --sa-ok: #18794e;
+    --sa-info: #1d4ed8;
+
+    /* Surface gradients must flip with the rest of the palette. Leaving
+       --gradient-dark dark in light mode put dark text on a dark header and
+       dark panels on a light page: the worst of both themes at once. */
+    --gradient-dark: linear-gradient(135deg, #ffffff, #eef2f8);
+    --gradient-red: linear-gradient(135deg, #d1242f, #b3202b);
+    --gradient-cyan: linear-gradient(135deg, #1d4ed8, #143aa8);
+    --gradient-purple: linear-gradient(135deg, #6d3fd1, #8a2be2);
+
+    --glow-red: none;
+    --glow-cyan: none;
+    --glow-purple: none;
+    --shadow-deep: 0 1px 2px rgba(16, 24, 40, 0.06), 0 16px 40px rgba(16, 24, 40, 0.12);
+    --shadow-panel: 0 1px 2px rgba(16, 24, 40, 0.05), 0 2px 8px rgba(16, 24, 40, 0.04);
+    --shadow-raised: 0 1px 2px rgba(16, 24, 40, 0.07), 0 8px 20px rgba(16, 24, 40, 0.08);
+}
+
+/* Text drawn in an accent colour needs a different weight on light, where the
+   neon accents no longer glow against a pale background. */
+html[data-theme="light"] .highlight,
+html[data-theme="light"] .title {
+    text-shadow: none;
+}
+
+html[data-theme="light"] .panel {
+    border-color: var(--border-color);
+}
+
+html[data-theme="light"] .chart-container,
+html[data-theme="light"] .anomaly-chart-container {
+    background: #fbfcfe;
+}
+
+/* The canvas itself is drawn by Chart.js in code, so the JS reads the theme. */
+html[data-theme="light"] .metric-fill {
+    /* Slightly deeper fill so bars remain legible on white. */
+    filter: saturate(1.15) brightness(0.85);
+}
+
+/* -------------------------------------------------------- accessibility --- */
+
+/* Focus was previously invisible: there were no :focus rules at all, so a
+   keyboard user could not tell where they were. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* Keep a visible ring for browsers without :focus-visible support. */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+[tabindex]:focus {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+
+.sa-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.sa-skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: var(--sa-z-help);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: var(--sa-space-3) var(--sa-space-4);
+    border: 2px solid var(--accent-cyan);
+    border-radius: 0 0 var(--sa-radius) 0;
+}
+
+.sa-skip-link:focus {
+    left: 0;
+}
+
+/* Respect a user's motion preference. The dashboard pulses LEDs, flashes the
+   skull and slides notifications; all of that is suppressed here. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Severity is never conveyed by colour alone: each counter also gets a glyph
+   and the alert rows get a text badge. This is the shape only, so a
+   high-contrast or monochrome rendering still distinguishes severity. */
+.severity-glyph {
+    font-family: monospace;
+    font-weight: 700;
+    margin-right: 4px;
+}
+
+/* ------------------------------------------------------- state components --- */
+
+/* Shown in place of panel content while a request is in flight. */
+.sa-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sa-space-2);
+    padding: var(--sa-space-5) var(--sa-space-4);
+    min-height: 72px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+.sa-state[hidden] { display: none; }
+
+.sa-state .sa-state-title {
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.sa-state .sa-state-detail {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    max-width: 42ch;
+}
+
+/* Loading spinner. Width/height are set inline by the JS to match whatever
+   container it is placed in. */
+.sa-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: sa-spin 0.8s linear infinite;
+}
+
+@keyframes sa-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* An empty state means "the request succeeded and there is nothing". It must
+   read differently from an error, or a quiet band looks like a broken one. */
+.sa-state--empty .sa-state-title { color: var(--text-muted); }
+
+.sa-state--error .sa-state-title { color: var(--sa-critical); }
+.sa-state--error { border: 1px dashed var(--sa-critical); border-radius: var(--sa-radius); }
+
+.sa-state--stale {
+    border: 1px dashed var(--warning);
+    border-radius: var(--sa-radius);
+}
+
+.sa-state--stale .sa-state-title { color: var(--warning); }
+
+/* Readout of the receiver's real capture window (centre +/- sample-rate/2). */
+.sa-window {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sa-space-2);
+    align-items: baseline;
+    margin: 0 0 var(--sa-space-3);
+    padding: var(--sa-space-2) var(--sa-space-3);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-radius);
+    font-size: 0.78rem;
+}
+
+.sa-window__label {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.68rem;
+}
+
+.sa-window__value {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Movable / resizable panels (panel-layout.js). The header grip reorders; the
+   corner grip resizes both the grid span and the minimum height. */
+.panel-layout-enabled .tab-view.active > .panel { position: relative; }
+
+.panel-drag-handle {
+    flex: 0 0 auto;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 22px;
+    margin-right: 2px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: grab;
+    touch-action: none;
+}
+
+.panel-drag-handle:hover { color: var(--text-primary); }
+.panel-drag-handle:active { cursor: grabbing; }
+
+.panel-dragging { opacity: 0.6; }
+
+.panel-resize-grip {
+    position: absolute;
+    /* Inset far enough to sit inside the panel's 10px corner radius. At 2px it
+       straddled the border and rendered as a stray triangle hanging off the
+       bottom-right corner of every panel. */
+    right: 3px;
+    bottom: 3px;
+    width: 14px;
+    height: 14px;
+    z-index: 6;
+    cursor: nwse-resize;
+    opacity: 0;
+    border-bottom-right-radius: 7px;
+    touch-action: none;
+    transition: opacity 120ms ease;
+    background: linear-gradient(135deg, transparent 0 48%,
+        var(--border-strong, var(--border-color)) 48% 100%);
+}
+
+/* Shown on hover, when it is the control the operator is reaching for. */
+.panel:hover .panel-resize-grip,
+.panel-resize-grip:focus-visible { opacity: 0.55; }
+
+.panel-resize-grip:hover,
+.panel-resize-grip:focus-visible { opacity: 0.95; }
+
+/* Badge naming the active detection method, so a heuristic live detector is
+   never mistaken for an untrained model. */
+.sa-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border: 1px solid var(--sa-info);
+    border-radius: 999px;
+    color: var(--sa-info);
+    font-size: 0.68rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* Retry button shown inside an error state. */
+.sa-retry {
+    margin-top: var(--sa-space-1);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: var(--sa-radius);
+    padding: 3px 10px;
+    font-family: inherit;
+    font-size: 0.72rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.sa-retry:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+/* A panel whose data failed still shows its last good value, dimmed, so the
+   user can read a stale number while knowing it is stale. */
+.sa-stale-badge {
+    display: inline-block;
+    margin-left: var(--sa-space-2);
+    padding: 1px 5px;
+    border: 1px solid var(--warning);
+    color: var(--warning);
+    border-radius: 2px;
+    font-size: 0.6rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+/* ------------------------------------------------------------- toasts ----- */
+
+.sa-toast-host {
+    position: fixed;
+    right: var(--sa-space-4);
+    bottom: var(--sa-space-4);
+    display: flex;
+    flex-direction: column-reverse;
+    gap: var(--sa-space-2);
+    z-index: var(--sa-z-toast);
+    max-height: 60vh;
+    pointer-events: none;
+}
+
+.sa-toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sa-space-2);
+    min-width: 260px;
+    max-width: 380px;
+    padding: var(--sa-space-3);
+    border-radius: var(--sa-radius);
+    border: 1px solid var(--border-color);
+    border-left-width: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    box-shadow: var(--shadow-deep);
+    animation: sa-toast-in 160ms ease-out;
+}
+
+.sa-toast--info { border-left-color: var(--sa-info); }
+.sa-toast--success { border-left-color: var(--sa-ok); }
+.sa-toast--warning { border-left-color: var(--sa-medium); }
+.sa-toast--error { border-left-color: var(--sa-critical); }
+.sa-toast--critical { border-left-color: var(--sa-critical); background: rgba(239, 83, 80, 0.1); }
+
+.sa-toast__icon { flex: 0 0 auto; line-height: 1.4; }
+.sa-toast__body { flex: 1 1 auto; min-width: 0; }
+.sa-toast__title {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    margin-bottom: 2px;
+}
+.sa-toast__message { color: var(--text-secondary); word-break: break-word; }
+
+.sa-toast__close {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.sa-toast__close:hover { color: var(--text-primary); }
+
+.sa-toast--leaving { animation: sa-toast-out 140ms ease-in forwards; }
+
+@keyframes sa-toast-in {
+    from { opacity: 0; transform: translateX(12px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes sa-toast-out {
+    to { opacity: 0; transform: translateX(12px); }
+}
+
+/* Progress bar on a toast that stays on screen (errors, criticals). */
+.sa-toast__timer {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background: currentColor;
+    opacity: 0.35;
+}
+
+/* ------------------------------------------------------- shortcut help ----- */
+
+.sa-help-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: var(--sa-z-help);
+    padding: var(--sa-space-4);
+}
+
+.sa-help-overlay.is-open { display: flex; }
+
+.sa-help {
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-cyan);
+    border-radius: var(--sa-radius-lg);
+    padding: var(--sa-space-5);
+    max-width: 640px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.sa-help h2 {
+    margin: 0 0 var(--sa-space-4);
+    color: var(--accent-cyan);
+    letter-spacing: 2px;
+    font-size: 1rem;
+    text-transform: uppercase;
+}
+
+.sa-help__group { margin-bottom: var(--sa-space-4); }
+
+.sa-help__group h3 {
+    font-size: 0.72rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 var(--sa-space-2);
+}
+
+.sa-help__row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sa-space-4);
+    padding: 3px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8rem;
+}
+
+.sa-help__row:last-child { border-bottom: none; }
+.sa-help__desc { color: var(--text-secondary); }
+
+kbd {
+    font-family: var(--sa-font-mono);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+/* ------------------------------------------------------ chart crosshair --- */
+
+.sa-chart-shell {
+    position: relative;
+    width: 100%;
+}
+
+.sa-crosshair {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--accent-cyan);
+    opacity: 0.55;
+    pointer-events: none;
+    display: none;
+}
+
+.sa-crosshair.is-visible { display: block; }
+
+.sa-readout {
+    position: absolute;
+    top: var(--sa-space-2);
+    right: var(--sa-space-2);
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid var(--accent-cyan);
+    border-radius: var(--sa-radius);
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    pointer-events: none;
+    display: none;
+    z-index: 5;
+    white-space: nowrap;
+}
+
+.sa-readout.is-visible { display: block; }
+.sa-readout .sa-readout__freq { color: var(--accent-cyan); font-weight: 700; }
+.sa-readout .sa-readout__db { color: var(--text-primary); font-weight: 700; }
+.sa-readout .sa-readout__label { color: var(--text-muted); }
+
+/* The chip must stay on one line and never wrap away from the cursor. */
+.sa-readout { white-space: nowrap; }
+
+html[data-theme="light"] .sa-readout {
+    background: rgba(255, 255, 255, 0.92);
+}
+
+/* --------------------------------------------------------- peak markers --- */
+
+.sa-peak-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+    margin-top: var(--sa-space-2);
+}
+
+.sa-peak-table th,
+.sa-peak-table td {
+    padding: 2px 6px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sa-peak-table th {
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.6rem;
+    letter-spacing: 1px;
+}
+
+.sa-peak-table td:first-child,
+.sa-peak-table th:first-child { text-align: left; }
+
+/* ------------------------------------------------------------ alerts ------ */
+
+.sa-alert {
+    display: flex;
+    gap: var(--sa-space-2);
+    padding: var(--sa-space-2) var(--sa-space-3);
+    border-left: 3px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.78rem;
+    align-items: flex-start;
+}
+
+.sa-alert:hover { background: var(--bg-tertiary); }
+.sa-alert--critical { border-left-color: var(--sa-critical); }
+.sa-alert--high { border-left-color: var(--sa-high); }
+.sa-alert--medium { border-left-color: var(--sa-medium); }
+.sa-alert--low { border-left-color: var(--sa-low); }
+
+.sa-alert__body { flex: 1 1 auto; min-width: 0; }
+
+.sa-alert__freq {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--sa-font-mono);
+}
+
+.sa-alert__meta {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    margin-top: 1px;
+}
+
+.sa-alert__actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.sa-alert:hover .sa-alert__actions,
+.sa-alert:focus-within .sa-alert__actions { opacity: 1; }
+
+/* Keyboard users get the actions without needing hover. */
+.sa-alert__action {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    border-radius: 2px;
+    /* 24px, the WCAG 2.5.8 minimum: at 22px the ack/locate pair sat under the
+       target-size floor and was fiddly on a touch screen. */
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 0.65rem;
+    line-height: 1;
+    padding: 0;
+}
+
+.sa-alert__action:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+/* An acknowledged alert stays visible but recedes. */
+.sa-alert--acked { opacity: 0.45; }
+.sa-alert--acked .sa-alert__freq { text-decoration: line-through; }
+
+/* -------------------------------------------------------- connection ------ */
+
+.sa-conn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-family: var(--sa-font-mono);
+}
+
+.sa-conn__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.sa-conn--live { color: var(--sa-ok); border-color: var(--sa-ok); }
+.sa-conn--live .sa-conn__dot { background: var(--sa-ok); }
+.sa-conn--connecting { color: var(--sa-medium); border-color: var(--sa-medium); }
+.sa-conn--connecting .sa-conn__dot { background: var(--sa-medium); animation: sa-pulse 1.2s ease-in-out infinite; }
+.sa-conn--down { color: var(--sa-critical); border-color: var(--sa-critical); }
+.sa-conn--down .sa-conn__dot { background: var(--sa-critical); }
+
+@keyframes sa-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+/* Stale-data flag: last successful update, with an age. */
+.sa-freshness {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-family: var(--sa-font-mono);
+    margin-left: var(--sa-space-2);
+}
+
+/* ------------------------------------------------------------ toolbar ----- */
+
+.sa-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sa-space-2);
+    flex-wrap: wrap;
+}
+
+.sa-toolbar__spacer { flex: 1 1 auto; }
+
+.sa-icon-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    border-radius: var(--sa-radius);
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+
+.sa-icon-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+/* ---------------------------------------------------------- responsive ---- */
+
+@media (max-width: 768px) {
+    /* Touch targets: 28px controls are unusable on a phone. The alert row
+       actions and the dense "tiny" buttons were never added to this list. */
+    .sa-icon-btn,
+    .btn-refresh,
+    .btn-clear,
+    .sa-alert__action,
+    .panel-controls button {
+        min-width: var(--sa-touch-target);
+        min-height: var(--sa-touch-target);
+    }
+
+    .sa-toast-host {
+        left: var(--sa-space-3);
+        right: var(--sa-space-3);
+        bottom: var(--sa-space-3);
+        max-height: 50vh;
+    }
+
+    .sa-toast { min-width: 0; max-width: none; }
+
+    .sa-alert__actions { opacity: 1; }
+
+    /* Metric grids get tight on a phone; drop to two columns. */
+    .metrics-grid,
+    .analytics-metrics { grid-template-columns: repeat(2, 1fr) !important; }
+
+    .chart-container { height: 220px !important; }
+}
+
+@media (max-width: 420px) {
+    .sa-toolbar { gap: var(--sa-space-1); }
+    .metrics-grid,
+    .analytics-metrics { grid-template-columns: 1fr !important; }
+}
+
+/* Horizontal scroll for wide tables rather than squashing them. */
+.sa-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sa-table-scroll > table { min-width: 100%; }
+/* Full-width SDR probe row under the System Status metric grid. The detail
+   string is a sentence ("No RTL-SDR device detected…"), so it needs the whole
+   panel width rather than a quarter-width metric card. It closes the card, so
+   the rule above it is the panel's footer edge. */
+.sdr-status-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.sdr-status-row .metric-value {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+/* --------------------------------------------------------- workspace tabs ---
+   Locate and Identify are two views over one capture, so they share a tab bar
+   rather than living on separate pages: the receiver roster, the waterfall and
+   the target frequency stay put while only the analysis below them changes. */
+
+.sa-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 14px 0 12px;
+    border-bottom: 1px solid var(--sa-border);
+}
+
+.sa-tab {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    padding: 9px 16px;
+    margin-bottom: -1px;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--sa-muted);
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+}
+
+.sa-tab:hover { color: var(--sa-text); background: var(--sa-panel-2); }
+
+/* The selected tab is marked by colour *and* an underline, not colour alone. */
+.sa-tab[aria-selected="true"] {
+    color: var(--sa-accent);
+    border-bottom-color: var(--sa-accent);
+}
+
+.sa-tab:focus-visible {
+    outline: 2px solid var(--sa-accent);
+    outline-offset: -2px;
+}
+
+.sa-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--sa-panel-2);
+    border: 1px solid var(--sa-border);
+    color: var(--sa-muted);
+    font-size: 0.68rem;
+    letter-spacing: 0;
+    vertical-align: 1px;
+}
+
+/* ---------------------------------------------------------- fp verdict --- */
+
+.sa-verdict {
+    border: 1px solid var(--sa-border);
+    border-left-width: 4px;
+    border-radius: 6px;
+    padding: 14px 16px;
+    background: var(--sa-panel-2);
+}
+
+.sa-verdict__status {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sa-muted);
+}
+
+.sa-verdict__label {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-top: 4px;
+    color: var(--sa-text);
+}
+
+.sa-verdict__label:empty { display: none; }
+
+.sa-verdict__meta {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: var(--sa-muted);
+}
+
+.sa-verdict__reason {
+    margin: 10px 0 0;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--sa-muted);
+}
+
+/* Colour states are duplicated as a left-border colour and an explicit word in
+   the status line, so the verdict does not rely on colour alone. */
+.sa-verdict[data-verdict="identified"] { border-left-color: var(--sa-good); }
+.sa-verdict[data-verdict="identified"] .sa-verdict__status { color: var(--sa-good); }
+
+.sa-verdict[data-verdict="ambiguous"],
+.sa-verdict[data-verdict="indeterminate"] { border-left-color: var(--sa-fair); }
+.sa-verdict[data-verdict="ambiguous"] .sa-verdict__status,
+.sa-verdict[data-verdict="indeterminate"] .sa-verdict__status {
+    color: var(--sa-fair);
+}
+
+.sa-verdict[data-verdict="no-match"],
+.sa-verdict[data-verdict="error"] { border-left-color: var(--sa-poor); }
+.sa-verdict[data-verdict="no-match"] .sa-verdict__status,
+.sa-verdict[data-verdict="error"] .sa-verdict__status { color: var(--sa-poor); }
+
+/* Difference bar in the feature table: how far each feature sits from the
+   nearest reference, in units of that feature's own spread. */
+.sa-diff {
+    position: relative;
+    min-width: 90px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--sa-panel);
+    overflow: hidden;
+}
+
+.sa-diff__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 4px;
+    background: var(--sa-accent);
+}
+
+.sa-diff__fill[data-band="low"] { background: var(--sa-good); }
+.sa-diff__fill[data-band="mid"] { background: var(--sa-fair); }
+.sa-diff__fill[data-band="high"] { background: var(--sa-poor); }
+
+/* -------------------------------------- guided workflow + disclosure ------ */
+/* Work that needs another step first is the main way this dashboard failed a
+   first-time user: the analyses refuse to run until receivers exist, but
+   nothing on the page said so before the press. The strip states the sequence,
+   each panel states what it is for, and controls that are recorded but not yet
+   applied by the detector are grouped behind a disclosure instead of sitting
+   among the live settings. */
+
+.sa-guide {
+    margin: 0 0 var(--sa-space-4);
+    padding: var(--sa-space-4);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent-cyan);
+    border-radius: var(--sa-radius-lg);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-deep, 0 4px 16px rgba(16, 20, 28, 0.12));
+}
+
+.sa-guide[hidden] { display: none; }
+
+.sa-guide__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sa-space-3);
+    flex-wrap: wrap;
+}
+
+.sa-guide__tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.sa-guide__intro h2 {
+    margin: 0 0 2px;
+    font-size: 0.95rem;
+    letter-spacing: 0.08em;
+    color: var(--accent-cyan);
+}
+
+.sa-guide__intro p {
+    margin: 0;
+    max-width: 78ch;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.sa-guide__steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--sa-space-3);
+    margin: var(--sa-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sa-step {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-radius);
+    background: var(--bg-tertiary);
+    min-width: 0;
+}
+
+.sa-step__num {
+    flex: 0 0 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.sa-step__body { min-width: 0; }
+
+.sa-step h3 {
+    margin: 0 0 4px;
+    font-size: 0.84rem;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+}
+
+.sa-step__why {
+    margin: 0 0 6px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+.sa-step__status {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0 0 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.sa-step__status::before {
+    content: '\25CF';
+    font-size: 9px;
+    color: currentColor;
+    flex: 0 0 auto;
+}
+
+.sa-step[data-state='ready'] .sa-step__num,
+.sa-step[data-state='ready'] .sa-step__status { color: var(--sa-ok); }
+
+.sa-step[data-state='pending'] .sa-step__num,
+.sa-step[data-state='pending'] .sa-step__status { color: var(--sa-medium); }
+
+.sa-step[data-state='active'] .sa-step__num,
+.sa-step[data-state='active'] .sa-step__status { color: var(--sa-info); }
+
+.sa-step[data-state='attention'] .sa-step__num,
+.sa-step[data-state='attention'] .sa-step__status { color: var(--sa-critical); }
+
+/* Guided mode: one step at a time. The mode toggle flips data-mode on the
+   guide; the rest of the strip hides until the step is the current one. */
+.sa-guide[data-mode='tour'] .sa-step { display: none; }
+.sa-guide[data-mode='tour'] .sa-step.is-active { display: flex; }
+
+/* Guided focus: in tour mode every panel hides except the ones the current
+   step needs, so the screen shows the guide plus one thing at a time.
+
+   Scoped to the dashboard's own tab-view. Hiding .panel document-wide also
+   blanked Config and Training, whose panels carry no data-guide-panel tag and
+   so could never be reopened by the tour: switching to either tab during a
+   tour showed an empty page with no way back. */
+body.sa-tour .tab-view[data-tab="dashboard"] .panel,
+body.sa-tour .sa-panel { display: none; }
+
+body.sa-tour .tab-view[data-tab="dashboard"] .panel.is-tour-open,
+body.sa-tour .sa-panel.is-tour-open { display: block; }
+
+/* The workspace is a two-column layout: a rail and an analysis column. In tour
+   mode the hidden column would leave an empty gutter and pin the analysis to
+   one side, so collapse the column that has no open panel and let whatever is
+   open stretch across the full width instead. */
+body.sa-tour .sa-rail,
+body.sa-tour .sa-workspace {
+    flex: 1 1 0% !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+}
+
+body.sa-tour .sa-workspace:not(:has([data-guide-panel].is-tour-open)) {
+    display: none !important;
+}
+
+/* The rail stays open through every step (see applyTourPanels) so receivers can
+   always be added or removed. When the analysis column is open beside it, keep
+   the rail at a sidebar width instead of letting the two split the row in half;
+   on its own (step 1) it still stretches to the full width. */
+@media (min-width: 1200px) {
+    body.sa-tour .sa-layout:has(> .sa-workspace [data-guide-panel].is-tour-open) > .sa-rail {
+        flex: 0 0 clamp(268px, 22vw, 360px) !important;
+        max-width: clamp(268px, 22vw, 360px) !important;
+    }
+}
+
+/* Focus mode also slims the chrome: the tagline is decorative, so only the
+   name stays while the tour runs. Tabs and the status LEDs stay either way —
+   navigation and the live System/Monitor/Threat heartbeat. */
+body.sa-tour .app-bar__tag {
+    display: none;
+}
+
+.sa-guide__tour {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: var(--sa-space-3);
+    padding-top: var(--sa-space-3);
+    border-top: 1px dashed var(--border-color);
+}
+
+.sa-guide__tour[hidden] { display: none; }
+
+.sa-guide__stage {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+}
+
+.sa-guide__counter { flex: 0 0 auto; }
+
+.sa-guide__bar {
+    flex: 1;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.sa-guide__bar-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent-cyan);
+    border-radius: 3px;
+    transition: width 200ms ease;
+}
+
+.sa-guide__nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+/* One line under most panel headings saying what the panel is for and what it
+   needs from elsewhere. */
+.sa-panel-desc {
+    margin: 0 0 var(--sa-space-3);
+    max-width: 74ch;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+.sa-disclose {
+    margin-top: var(--sa-space-3);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--sa-radius);
+    background: var(--bg-tertiary);
+}
+
+.sa-disclose > summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent-cyan);
+}
+
+.sa-disclose > summary::-webkit-details-marker { display: none; }
+
+.sa-disclose > summary::before {
+    content: '\25B8';
+    font-size: 10px;
+}
+
+.sa-disclose[open] > summary::before { content: '\25BE'; }
+
+.sa-disclose[open] > summary {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.sa-disclose > p,
+.sa-disclose > .config-grid {
+    margin: 10px;
+}
+
+.sa-disclose > p { margin-bottom: 10px; }
+
+.sa-define {
+    margin: 4px 10px 10px;
+    font-size: 11.5px;
+}
+
+.sa-define dt {
+    margin-top: 8px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.sa-define dd {
+    margin: 2px 0 0;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+/* What a control needs from somewhere else, and whether it has it. Sits next to
+   the button it governs rather than in a help page nobody opens. */
+.sa-req {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--sa-medium);
+    border-radius: var(--sa-radius);
+    background: var(--bg-tertiary);
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+.sa-req[data-state='ready'] {
+    border-left-color: var(--sa-ok);
+    color: var(--text-primary);
+}
+
+.sa-req[data-state='blocked'] {
+    border-left-color: var(--sa-critical);
+    color: var(--text-primary);
+}
+
+.sa-link-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: inherit;
+    color: var(--accent-cyan);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.sa-link-btn:hover { color: var(--text-primary); }
+
+.sa-section-desc {
+    margin: 4px 0 0;
+    max-width: 80ch;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .sa-guide { padding: var(--sa-space-3); }
+    .sa-guide__steps { grid-template-columns: 1fr; }
+    /* Disclosures must stay reachable on a phone, where <summary> is the tap. */
+    .sa-disclose > summary { min-height: var(--sa-touch-target); }
+}
+
+/* ------------------------------------------- third-party chrome (map) ------ */
+/* Leaflet ships a white attribution strip with #0078a8 links, which measures
+   3.2:1 whether the page is light or dark. Restate it in the page palette so
+   the mandatory credit line stays readable in both themes. */
+/* leaflet.css is linked after ours, so these need the extra body step to
+   outrank its own .leaflet-control-attribution rules. */
+html body .leaflet-control-attribution {
+    background: rgba(255, 255, 255, 0.94);
+    color: #10141c;
+}
+
+html body .leaflet-control-attribution a { color: #1553c2; }
+
+html:not([data-theme="light"]) body .leaflet-control-attribution {
+    background: rgba(11, 14, 20, 0.88);
+    color: #e6ebf2;
+}
+
+html:not([data-theme="light"]) body .leaflet-control-attribution a { color: #8ab4ff; }
