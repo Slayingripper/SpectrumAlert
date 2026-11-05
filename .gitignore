@@ -154,21 +154,26 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# SpectrumAlert specific files and optimizations
-test_*.py
+# SpectrumAlert specific files and optimizations.
+# These are anchored to the repository root: unanchored `test_*.py` also
+# ignored new files under tests/.
+/test_*.py
+/*_test.py
 *_SUMMARY.md
-*_test.py
-Main.py
-main_simple.py
-rtl_recovery.py
-run_safe.py
-check_features.py
+/Main.py
+/main_simple.py
+/rtl_recovery.py
+/run_safe.py
+/check_features.py
 
 # Data directories that can get large - exclude to save space
 data/spectrum/
 data/features/
 data/logs/
+data/iq_fixture_manifest.json
 models/*.pkl
+models/*.joblib
+models/*_latest.json
 
 # Data and model files (except in proper directories)
 /*.pkl
