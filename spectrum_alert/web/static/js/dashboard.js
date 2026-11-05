@@ -788,7 +788,7 @@ function retrainModel() {
         return;
     }
     
-    showNotification('🔄 Starting model retraining...', 'info');
+    showNotification('Starting model retraining...', 'info');
     
     // Update UI to show retraining has started
     const retrainBtn = document.querySelector('.btn-retrain');
@@ -799,13 +799,13 @@ function retrainModel() {
     
     // Call the main training function with additional retrain feedback
     trainModel().then(() => {
-        showNotification('✅ Model retrained successfully!', 'success');
+        showNotification('Model retrained successfully!', 'success');
         // Refresh model status to show updated metrics
         setTimeout(() => {
             loadModelStatus();
         }, 2000);
     }).catch((error) => {
-        showNotification('❌ Retraining failed: ' + error.message, 'error');
+        showNotification('Retraining failed: ' + error.message, 'error');
     }).finally(() => {
         // Reset retrain button
         if (retrainBtn) {
@@ -969,7 +969,7 @@ async function startMonitoring() {
             updateStatusIndicator('monitor-status', true);
             updateStatusIndicator('system-status', true);
 
-            showNotification('✅ Spectrum monitoring started successfully!', 'success');
+            showNotification('Spectrum monitoring started successfully!', 'success');
 
             // Start polling for monitoring status
             startMonitoringStatusPolling();
@@ -995,11 +995,11 @@ async function startMonitoring() {
                 // keep statusText
             }
             console.error('Failed to start monitoring:', detail);
-            showNotification('❌ Failed to start monitoring: ' + detail, 'error');
+            showNotification('Failed to start monitoring: ' + detail, 'error');
         }
     } catch (error) {
         console.error('Error starting monitoring:', error);
-        showNotification('❌ Error starting monitoring: ' + error.message, 'error');
+        showNotification('Error starting monitoring: ' + error.message, 'error');
     }
 }
 
@@ -1043,11 +1043,11 @@ async function stopMonitoring() {
             
         } else {
             console.error('Failed to stop monitoring:', response.statusText);
-            showNotification('❌ Failed to stop monitoring: ' + response.statusText, 'error');
+            showNotification('Failed to stop monitoring: ' + response.statusText, 'error');
         }
     } catch (error) {
         console.error('Error stopping monitoring:', error);
-        showNotification('❌ Error stopping monitoring: ' + error.message, 'error');
+        showNotification('Error stopping monitoring: ' + error.message, 'error');
     }
 }
 
@@ -1171,7 +1171,7 @@ async function trainModel() {
         let trainingDetails = `Model Type: ${modelType}\nDataset: ${datasetSelect}\nEpochs: ${epochs}\nContamination: ${contamination}`;
         
         console.log('Starting model training with config:', config);
-        showNotification(`🔄 Starting ${modelType} training...\n${trainingDetails}`, 'info');
+        showNotification(`Starting ${modelType} training...\n${trainingDetails}`, 'info');
         
         // Show detailed training info in the UI
         updateTrainingProgressDisplay({
@@ -1197,18 +1197,18 @@ async function trainModel() {
             updateTrainingUI(true);
             console.log('Training started:', result);
             
-            showNotification(`✅ Training started successfully!\nModel: ${modelType}\nDataset: ${datasetSelect}`, 'success');
+            showNotification(`Training started successfully!\nModel: ${modelType}\nDataset: ${datasetSelect}`, 'success');
             
             // Start polling for training status
             startTrainingStatusPolling();
         } else {
             const error = await response.text();
             console.error('Failed to start training:', error);
-            showNotification('❌ Failed to start training: ' + error, 'error');
+            showNotification('Failed to start training: ' + error, 'error');
         }
     } catch (error) {
         console.error('Error starting training:', error);
-        showNotification('❌ Error starting training: ' + error.message, 'error');
+        showNotification('Error starting training: ' + error.message, 'error');
     }
 }
 
@@ -1314,11 +1314,14 @@ async function loadTrainingStatus() {
         const response = await fetch('/api/model/training/status');
         if (response.ok) {
             const result = await response.json();
-            if (result.status === 'success' && result.data) {
+            // The endpoint returns {"status":"ok"}; checking only "success"
+            // meant training state was never applied.
+            if ((result.status === 'ok' || result.status === 'success') && result.data) {
                 updateTrainingStatus({
                     active: result.data.training_active || false,
                     progress: result.data.training_progress?.progress || 0,
-                    status: result.data.training_progress?.status || 'Ready',
+                    status: result.data.training_progress?.message
+                        || result.data.training_progress?.stage || 'Ready',
                     last_training_time: result.data.last_training || 'Never'
                 });
             }
@@ -1334,19 +1337,24 @@ function startTrainingStatusPolling() {
             const response = await fetch('/api/model/training/status');
             if (response.ok) {
                 const result = await response.json();
-                if (result.status === 'success' && result.data) {
+                if ((result.status === 'ok' || result.status === 'success') && result.data) {
                     const status = {
                         active: result.data.training_active || false,
                         progress: result.data.training_progress?.progress || 0,
-                        status: result.data.training_progress?.status || 'Ready',
+                        status: result.data.training_progress?.message
+                            || result.data.training_progress?.stage || 'Ready',
                         last_training_time: result.data.last_training || 'Never'
                     };
                     updateTrainingStatus(status);
-                    
+
                     if (!status.active) {
                         clearInterval(pollInterval);
                         trainingInProgress = false;
                         updateTrainingUI(false);
+                        // The trained artifact and sample counts changed; the
+                        // panel polls every 30s otherwise, so it kept showing
+                        // "Not deployed" right after a successful train.
+                        loadModelStatus();
                     }
                 }
             }
@@ -1381,13 +1389,35 @@ function updateTrainingStatus(status) {
     updateStatusValue('training-active', status.active ? 'Yes' : 'No');
     updateStatusValue('training-progress', `${status.progress}%`);
     updateStatusValue('last-training', status.last_training_time || 'Never');
+
+    // The headline status was hard-coded to "Idle" in the markup and never
+    // updated, so a finished run still read as idle.
+    const trainingLabel = document.getElementById('training-status');
+    if (trainingLabel) {
+        if (status.active) {
+            trainingLabel.textContent = 'Training';
+        } else if (status.last_training_time && status.last_training_time !== 'Never') {
+            trainingLabel.textContent = 'Completed';
+        } else {
+            trainingLabel.textContent = 'Idle';
+        }
+    }
     
     // Update detailed progress display if it exists
     const progressDisplay = document.getElementById('training-progress-display');
     if (progressDisplay && progressDisplay.style.display !== 'none') {
+        // The status payload does not carry the chosen model or dataset, and
+        // the detail rows were therefore rendered as "Unknown" / "Default".
+        // Read them from the controls the training run is using.
+        const modelSelect = document.getElementById('model-type');
+        const datasetSelect = document.getElementById('dataset-select');
         updateTrainingProgressDisplay({
-            model_type: status.model_type || 'Unknown',
-            dataset: status.dataset || 'Default',
+            model_type: status.model_type
+                || modelSelect?.selectedOptions?.[0]?.textContent.trim()
+                || '—',
+            dataset: status.dataset
+                || datasetSelect?.selectedOptions?.[0]?.textContent.trim()
+                || '—',
             status: status.status || 'Ready',
             progress: status.progress || 0,
             metrics: status.metrics
@@ -1396,10 +1426,10 @@ function updateTrainingStatus(status) {
     
     // Show notifications for important status changes
     if (status.active && !trainingInProgress) {
-        showNotification(`🔄 Training in progress: ${status.status}`, 'info');
+        showNotification(`Training in progress: ${status.status}`, 'info');
         trainingInProgress = true;
     } else if (!status.active && trainingInProgress) {
-        showNotification(`✅ Training completed: ${status.status}`, 'success');
+        showNotification(`Training completed: ${status.status}`, 'success');
         trainingInProgress = false;
         
         // Auto-refresh model status after training completes
@@ -1546,7 +1576,7 @@ async function collectData() {
             console.log('Data collection result:', result);
             
             if (result.status === 'success') {
-                showNotification(`✅ ${result.message}`, 'success');
+                showNotification(`${result.message}`, 'success');
                 
                 // Show collection details if available
                 if (result.data) {
@@ -1639,7 +1669,11 @@ function displayDataFiles(files) {
         // Escape anything that came from a filename before it reaches innerHTML.
         var name = SAUI.escapeHtml(file.filename);
         var when = SAUI.format.relativeTime(file.modified || file.created);
-        var size = SAUI.format.bytes((file.size_mb || 0) * 1024 * 1024);
+        // Prefer the exact byte count: size_mb is rounded to two decimals and
+        // rendered small feature files as "0 B".
+        var sizeBytes = Number(file.size_bytes);
+        if (!Number.isFinite(sizeBytes)) sizeBytes = (file.size_mb || 0) * 1024 * 1024;
+        var size = SAUI.format.bytes(sizeBytes);
         var samples = isFinite(file.samples) ? file.samples.toLocaleString() + ' samples' : '';
         return '<div class="file-item" data-file="' + name + '" tabindex="0" role="button" ' +
             'title="Analyse ' + name + '">' +
@@ -2241,12 +2275,15 @@ function startModelStatusRefresh() {
 }
 
 function updateModelInfo(info) {
-    if (info.accuracy !== undefined) {
-        updateElementText('model-accuracy', (info.accuracy * 100).toFixed(1) + '%');
-    }
-    if (info.confidence !== undefined) {
-        updateElementText('model-confidence', (info.confidence * 100).toFixed(1) + '%');
-    }
+    // A model with no labelled holdout has no accuracy to report. Show "--"
+    // rather than rendering "NaN%" or implying a measured score of zero.
+    const percent = (value) => {
+        if (value === null || value === undefined || value === '') return '--';
+        const number = Number(value);
+        return Number.isFinite(number) ? (number * 100).toFixed(1) + '%' : '--';
+    };
+    updateElementText('model-accuracy', percent(info.accuracy));
+    updateElementText('model-confidence', percent(info.confidence));
     if (info.last_trained) {
         const date = new Date(info.last_trained);
         updateElementText('last-trained', date.toLocaleDateString() + ' ' + date.toLocaleTimeString());
@@ -2258,7 +2295,12 @@ function updateModelInfo(info) {
     // Model type is a read-only stat here. Overwriting the training panel's
     // <select> by the same id destroyed its options on the first poll.
     if (info.model_type) {
-        updateElementText('model-type-display', info.model_type);
+        const labels = {
+            isolation_forest: 'Isolation Forest',
+            one_class_svm: 'One-Class SVM',
+            autoencoder: 'Autoencoder'
+        };
+        updateElementText('model-type-display', labels[info.model_type] || info.model_type);
     }
     if (info.is_deployed !== undefined) {
         const deployStatus = info.is_deployed ? 'Deployed' : 'Not deployed';
@@ -2268,8 +2310,21 @@ function updateModelInfo(info) {
 
 function updateModelPerformanceChart(metrics) {
     const canvas = document.getElementById('model-performance-chart');
-    if (!canvas || !metrics) return;
-    
+    if (!canvas) return;
+
+    const state = document.getElementById('model-chart-state');
+    const values = metrics ? Object.values(metrics).map(Number) : [];
+    const hasMetrics = values.some((value) => Number.isFinite(value) && value > 0);
+    if (!hasMetrics) {
+        if (window.modelChart) {
+            window.modelChart.destroy();
+            window.modelChart = null;
+        }
+        if (state) state.hidden = false;
+        return;
+    }
+    if (state) state.hidden = true;
+
     // Create or update the performance chart
     if (window.modelChart) {
         window.modelChart.destroy();

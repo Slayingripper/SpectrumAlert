@@ -795,12 +795,20 @@ class SpectrumAlertWebApp:
                 contamination = float(training_config.get("contamination", 0.1))
                 epochs = int(training_config.get("epochs", 100))
 
-                if dataset_name:
+                # The Training panel's dataset picker offers "all", "recent" and
+                # "custom". Those are ranges, not filenames, but they were
+                # treated as dataset names: selecting the default "All data"
+                # made the endpoint look for data/features/all and refuse to
+                # train. Only a real filename reaches the explicit path branch.
+                dataset_choice = (dataset_name or "").strip()
+                is_range_choice = dataset_choice.lower() in ("", "all", "recent", "custom")
+
+                if not is_range_choice:
                     dataset_path = None
                     for path in (
-                        Path(f"data/features/{dataset_name}"),
-                        Path(dataset_name),
-                        Path(f"data/{dataset_name}"),
+                        Path(f"data/features/{dataset_choice}"),
+                        Path(dataset_choice),
+                        Path(f"data/{dataset_choice}"),
                     ):
                         if path.exists():
                             dataset_path = path
@@ -810,7 +818,7 @@ class SpectrumAlertWebApp:
                         return {
                             "status": "error",
                             "message": (
-                                f"Dataset '{dataset_name}' not found. "
+                                f"Dataset '{dataset_choice}' not found. "
                                 f"Available datasets can be seen in Data Management."
                             ),
                         }
@@ -825,8 +833,9 @@ class SpectrumAlertWebApp:
                     # depended on whichever capture happened to be newest, and
                     # failed whenever that one file had too few rows even with
                     # hundreds of rows available elsewhere.
+                    days = 1 if dataset_choice.lower() == "recent" else None
                     try:
-                        df = self.storage.load_training_data(mode=mode)
+                        df = self.storage.load_training_data(mode=mode, days=days)
                     except Exception as e:
                         logger.warning("load_training_data failed (%s); falling back to CSVs", e)
                         frames = []
@@ -1130,153 +1139,112 @@ class SpectrumAlertWebApp:
 
         @self.app.get("/api/model/status")
         async def get_model_status():
-            """Get comprehensive model performance and status"""
+            """Report the trained model actually on disk.
+
+            The old version looked for model files in the working directory
+            while training wrote to models/, so a freshly trained model showed
+            as "Unknown" with an empty file list. It then invented an accuracy
+            from random-normal noise when it could not find one. This reports
+            the artifact's own metadata and leaves metrics unset when they were
+            never measured.
+            """
             try:
                 import joblib
                 from pathlib import Path
-                import numpy as np
-                
+
                 model_status = {
-                    "accuracy": 0.0,
-                    "confidence": 0.0,
+                    "accuracy": None,
+                    "confidence": None,
                     "last_trained": None,
                     "sample_count": 0,
                     "model_type": "Unknown",
                     "is_deployed": False,
+                    "feature_count": 0,
                     "performance_metrics": {},
-                    "model_files": []
+                    "model_files": [],
                 }
-                
-                # Check for existing model files
-                model_files = [
-                    "anomaly_detection_model_lite.pkl",
-                    "rf_fingerprinting_model_lite.pkl",
-                    "anomaly_detection_model.pkl",
-                    "rf_fingerprinting_model.pkl"
-                ]
-                
-                for model_file in model_files:
-                    model_path = Path(model_file)
-                    if model_path.exists():
-                        model_status["model_files"].append(model_file)
-                        try:
-                            # Load model to get basic info
-                            model = joblib.load(model_path)
-                            model_status["model_type"] = type(model).__name__
-                            model_status["is_deployed"] = True
-                            
-                            # Get last modified time as training time
-                            model_status["last_trained"] = model_path.stat().st_mtime
-                            
-                            # Try to get performance metrics if available
-                            if hasattr(model, 'score') or hasattr(model, 'decision_function'):
-                                # Get real performance metrics based on recent data
-                                try:
-                                    # Calculate performance based on recent spectrum analysis
-                                    base_dir = Path(__file__).parent.parent.parent  # Go up to SpectrumAlert root
-                                    spectrum_dir = base_dir / "data" / "spectrum"
-                                    if spectrum_dir.exists():
-                                        recent_files = list(spectrum_dir.glob("*.json"))
-                                        recent_files = [f for f in recent_files if (datetime.now() - datetime.fromtimestamp(f.stat().st_mtime)).days < 7]
-                                        
-                                        if recent_files:
-                                            # Use actual model age and data volume to calculate realistic metrics
-                                            model_age_days = (datetime.now() - datetime.fromtimestamp(model_path.stat().st_mtime)).days
-                                            data_volume = len(recent_files)
-                                            
-                                            # Base accuracy starts high and degrades over time
-                                            base_accuracy = max(0.75, 0.95 - (model_age_days * 0.005))
-                                            
-                                            # Adjust for data volume (more data = better performance)
-                                            volume_factor = min(1.0, data_volume / 100.0)  # Normalize to 100 files
-                                            model_status["accuracy"] = base_accuracy * (0.8 + 0.2 * volume_factor)
-                                            
-                                            # Confidence correlates with accuracy but is generally lower
-                                            model_status["confidence"] = model_status["accuracy"] * (0.85 + np.random.normal(0, 0.05))
-                                            
-                                            # Sample count from actual data
-                                            model_status["sample_count"] = data_volume * np.random.randint(50, 200)
-                                            
-                                            # More realistic performance metrics
-                                            model_status["performance_metrics"] = {
-                                                "precision": model_status["accuracy"] * (0.95 + np.random.normal(0, 0.02)),
-                                                "recall": model_status["accuracy"] * (0.90 + np.random.normal(0, 0.03)),
-                                                "f1_score": model_status["accuracy"] * (0.92 + np.random.normal(0, 0.02)),
-                                                "auc_score": model_status["accuracy"] * (1.05 + np.random.normal(0, 0.01))
-                                            }
-                                        else:
-                                            # No recent data - poor performance
-                                            model_status["accuracy"] = 0.60 + np.random.normal(0, 0.05)
-                                            model_status["confidence"] = 0.50 + np.random.normal(0, 0.05)
-                                            model_status["sample_count"] = np.random.randint(100, 500)
-                                            
-                                            model_status["performance_metrics"] = {
-                                                "precision": 0.55 + np.random.normal(0, 0.03),
-                                                "recall": 0.52 + np.random.normal(0, 0.04),
-                                                "f1_score": 0.53 + np.random.normal(0, 0.03),
-                                                "auc_score": 0.58 + np.random.normal(0, 0.02)
-                                            }
-                                    else:
-                                        # No data directory - very poor performance
-                                        model_status["accuracy"] = 0.45 + np.random.normal(0, 0.05)
-                                        model_status["confidence"] = 0.35 + np.random.normal(0, 0.05)
-                                        model_status["sample_count"] = np.random.randint(50, 200)
-                                        
-                                        model_status["performance_metrics"] = {
-                                            "precision": 0.40 + np.random.normal(0, 0.03),
-                                            "recall": 0.38 + np.random.normal(0, 0.04),
-                                            "f1_score": 0.39 + np.random.normal(0, 0.03),
-                                            "auc_score": 0.42 + np.random.normal(0, 0.02)
-                                        }
-                                        
-                                except Exception as e:
-                                    logger.warning(f"Error calculating real model metrics: {e}")
-                                    # Fallback to basic metrics
-                                    model_status["accuracy"] = 0.80 + np.random.normal(0, 0.05)
-                                    model_status["confidence"] = 0.75 + np.random.normal(0, 0.05)
-                                    model_status["sample_count"] = np.random.randint(1000, 3000)
-                                    
-                                    model_status["performance_metrics"] = {
-                                        "precision": 0.78 + np.random.normal(0, 0.03),
-                                        "recall": 0.76 + np.random.normal(0, 0.04),
-                                        "f1_score": 0.77 + np.random.normal(0, 0.03),
-                                        "auc_score": 0.82 + np.random.normal(0, 0.02)
-                                    }
-                            
-                            break  # Use the first found model
-                        except Exception as e:
-                            logger.warning(f"Could not load model {model_file}: {e}")
-                            continue
-                
-                # Convert timestamp to ISO format if available
-                if model_status["last_trained"]:
-                    from datetime import datetime
-                    model_status["last_trained"] = datetime.fromtimestamp(model_status["last_trained"]).isoformat()
-                
-                # Ensure values are in valid ranges
-                model_status["accuracy"] = max(0.0, min(1.0, model_status["accuracy"]))
-                model_status["confidence"] = max(0.0, min(1.0, model_status["confidence"]))
-                
-                return {
-                    "status": "success",
-                    "data": model_status
-                }
-                
+
+                # models/ next to the data directory is where the trainer and
+                # the CLI write. Current working directory is included for
+                # older checkouts that dropped a .pkl at the repo root.
+                data_root = Path(self.storage.data_dir).resolve()
+                search_dirs = [data_root.parent / "models", Path("models"), Path.cwd()]
+                found = {}
+                for directory in search_dirs:
+                    if not directory.is_dir():
+                        continue
+                    for pattern in ("*.pkl", "*.joblib"):
+                        for path in directory.glob(pattern):
+                            # The same models/ directory can be reached through
+                            # more than one relative path; key by resolved path
+                            # so the list does not report duplicates.
+                            found[str(path.resolve())] = path
+                candidates = sorted(found.values(), key=lambda f: f.stat().st_mtime, reverse=True)
+
+                if not candidates:
+                    return {"status": "success", "data": model_status}
+
+                latest = candidates[0]
+                model_status["model_files"] = [path.name for path in candidates]
+                model_status["last_trained"] = datetime.fromtimestamp(
+                    latest.stat().st_mtime
+                ).isoformat()
+                model_status["is_deployed"] = True
+
+                try:
+                    artifact = joblib.load(latest)
+                except Exception as exc:
+                    logger.warning("Could not load model %s: %s", latest, exc)
+                    return {"status": "success", "data": model_status}
+
+                model = artifact.get("model", artifact) if isinstance(artifact, dict) else artifact
+                dataset_info = artifact.get("dataset_info", {}) if isinstance(artifact, dict) else {}
+
+                model_status["model_type"] = (
+                    artifact.get("model_type")
+                    or artifact.get("mode")
+                    or type(model).__name__
+                )
+                model_status["sample_count"] = int(
+                    dataset_info.get("samples")
+                    or artifact.get("n_samples")
+                    or 0
+                )
+                model_status["feature_count"] = int(
+                    dataset_info.get("features")
+                    or artifact.get("n_features")
+                    or (len(artifact.get("feature_columns", [])) if isinstance(artifact, dict) else 0)
+                    or 0
+                )
+
+                # Only surface metrics that were actually measured. The
+                # training endpoint reports them under "evaluation"; the
+                # use-case trainer reports a holdout rate instead.
+                evaluation = artifact.get("evaluation", {}) if isinstance(artifact, dict) else {}
+                if isinstance(evaluation, dict):
+                    accuracy = evaluation.get("accuracy")
+                    if isinstance(accuracy, (int, float)):
+                        model_status["accuracy"] = float(accuracy)
+                        model_status["confidence"] = float(accuracy)
+
+                return {"status": "success", "data": model_status}
+
             except Exception as e:
                 logger.error(f"Failed to get model status: {e}")
                 return {
                     "status": "error",
                     "message": str(e),
                     "data": {
-                        "accuracy": 0.0,
-                        "confidence": 0.0,
+                        "accuracy": None,
+                        "confidence": None,
                         "last_trained": None,
                         "sample_count": 0,
                         "model_type": "Unknown",
                         "is_deployed": False,
+                        "feature_count": 0,
                         "performance_metrics": {},
-                        "model_files": []
-                    }
+                        "model_files": [],
+                    },
                 }
 
         @self.app.get("/api/data/stats")
@@ -1295,26 +1263,37 @@ class SpectrumAlertWebApp:
                     "file_types": {}
                 }
                 
-                data_dir = Path("data")
+                # Use the configured data directory, not a hard-coded relative
+                # path: the storage layer may be pointed elsewhere (and under an
+                # installed wheel the working directory is not the checkout).
+                data_dir = Path(self.storage.data_dir)
                 if data_dir.exists():
-                    csv_files = list(data_dir.glob("**/*.csv"))
-                    data_stats["total_files"] = len(csv_files)
-                    
-                    total_size = sum(f.stat().st_size for f in csv_files)
+                    all_files = [
+                        path for path in data_dir.rglob("*")
+                        if path.is_file() and path.suffix.lower() in (".csv", ".json")
+                    ]
+                    csv_files = [path for path in all_files if path.suffix.lower() == ".csv"]
+
+                    data_stats["total_files"] = len(all_files)
+                    data_stats["file_types"] = {
+                        "csv": len(csv_files),
+                        "json": len(all_files) - len(csv_files),
+                    }
+                    total_size = sum(f.stat().st_size for f in all_files)
                     data_stats["data_size_mb"] = round(total_size / (1024 * 1024), 2)
-                    
-                    # Sample a few files to get statistics
-                    sample_files = csv_files[:5] if len(csv_files) > 5 else csv_files
+
+                    # Sample a few CSV files to estimate row counts. Spectrum
+                    # JSON files store sample counts, not tabular rows.
+                    sample_files = csv_files[:5]
                     total_samples = 0
-                    
+
                     for file in sample_files:
                         try:
                             df = pd.read_csv(file)
                             total_samples += len(df)
                         except Exception:
                             continue
-                    
-                    # Estimate total samples
+
                     if sample_files:
                         avg_samples_per_file = total_samples / len(sample_files)
                         data_stats["total_samples"] = int(avg_samples_per_file * len(csv_files))
@@ -1434,15 +1413,25 @@ class SpectrumAlertWebApp:
                 import json
                 
                 data_files = []
-                
-                # Look for REAL dataset files using absolute paths
-                base_dir = Path(__file__).parent.parent.parent  # Go up to SpectrumAlert root
+
+                # Scan the same data directory the storage layer writes to.
+                # `__file__` resolves inside site-packages for an installed
+                # wheel, so the old anchor pointed at a directory that never
+                # existed in Docker and Data Management was always empty there.
+                data_root = Path(self.storage.data_dir).resolve()
                 real_data_paths = [
-                    base_dir / "data" / "features",      # Feature files
-                    base_dir / "data" / "anomalies",     # Anomaly detection results
-                    base_dir / "data" / "spectrum",      # Raw spectrum data
-                    base_dir,                            # Root directory for lite models
+                    data_root / "features",      # Feature files
+                    data_root / "anomalies",     # Anomaly detection results
+                    data_root / "spectrum",      # Raw spectrum data
+                    data_root,
+                    Path.cwd(),                  # Root directory for lite models
                 ]
+
+                def _display_path(path: Path) -> str:
+                    try:
+                        return str(path.relative_to(Path.cwd()))
+                    except ValueError:
+                        return str(path)
                 
                 for data_dir in real_data_paths:
                     if not data_dir.exists():
@@ -1484,7 +1473,7 @@ class SpectrumAlertWebApp:
                                 
                                 file_info = {
                                     "filename": csv_file.name,
-                                    "path": str(csv_file.relative_to(Path.cwd())),
+                                    "path": _display_path(csv_file),
                                     "full_path": str(csv_file),
                                     "type": "csv",
                                     "dataset_type": dataset_type,
@@ -1497,7 +1486,10 @@ class SpectrumAlertWebApp:
                                     "columns": columns,
                                     "sample_data": sample_data,
                                     "selectable": True,  # Can be selected for training
-                                    "ready_for_training": samples > 100 and len(columns) > 1
+                                    # Match the training endpoint's own floor
+                                    # (10 complete rows). A 100-row UI threshold
+                                    # marked trainable datasets as not ready.
+                                    "ready_for_training": samples >= 10 and len(columns) > 1
                                 }
                                 
                                 data_files.append(file_info)
@@ -1518,8 +1510,19 @@ class SpectrumAlertWebApp:
                                 try:
                                     with open(json_file, 'r') as f:
                                         data = json.load(f)
-                                        if "samples_real" in data and "samples_imag" in data:
-                                            samples = len(data["samples_real"])
+                                        # Current files store i_samples/q_samples;
+                                        # the legacy schema used samples_real/
+                                        # samples_imag. Only recognising the old
+                                        # keys hid every capture written since
+                                        # the schema change.
+                                        if "i_samples" in data and "q_samples" in data:
+                                            sample_count = len(data["i_samples"])
+                                        elif "samples_real" in data and "samples_imag" in data:
+                                            sample_count = len(data["samples_real"])
+                                        else:
+                                            sample_count = 0
+                                        if sample_count:
+                                            samples = sample_count
                                             freq_info = {
                                                 "center_frequency": data.get("frequency_hz", 0),
                                                 "sample_rate": data.get("sample_rate_hz", 0),
@@ -1531,7 +1534,7 @@ class SpectrumAlertWebApp:
                                 if samples > 0:  # Only include if we found valid spectrum data
                                     file_info = {
                                         "filename": json_file.name,
-                                        "path": str(json_file.relative_to(Path.cwd())),
+                                        "path": _display_path(json_file),
                                         "full_path": str(json_file),
                                         "type": "json",
                                         "dataset_type": "spectrum",
@@ -1585,17 +1588,26 @@ class SpectrumAlertWebApp:
             try:
                 from pathlib import Path
                 import json
-                
-                # Find the file in possible locations
-                data_dirs = ["data", "spectrum_data", "collected_data", "."]
-                file_path = None
-                
-                for data_dir_name in data_dirs:
-                    potential_path = Path(data_dir_name) / filename
-                    if potential_path.exists():
-                        file_path = potential_path
-                        break
-                
+
+                # The listing endpoint returns bare filenames from several
+                # subdirectories, so the lookup has to search those same
+                # subdirectories. It previously looked only in "data/<name>",
+                # which is why analysing a listed feature or anomaly file
+                # always failed with "File not found".
+                safe_name = Path(filename).name
+                if safe_name != filename:
+                    return {"status": "error", "message": "Invalid file name"}
+
+                data_root = Path(self.storage.data_dir)
+                candidates = [
+                    data_root / safe_name,
+                    data_root / "features" / safe_name,
+                    data_root / "anomalies" / safe_name,
+                    data_root / "spectrum" / safe_name,
+                    Path.cwd() / safe_name,
+                ]
+                file_path = next((p for p in candidates if p.is_file()), None)
+
                 if not file_path:
                     return {
                         "status": "error",
@@ -1654,13 +1666,40 @@ class SpectrumAlertWebApp:
                         analysis["samples"] = len(data)
                         analysis["preview_data"] = data[:10]
                     elif isinstance(data, dict):
-                        analysis["samples"] = 1
-                        analysis["preview_data"] = [data]
-                        
+                        # Current captures store i_samples/q_samples. Report the
+                        # real capture length and keep the sample arrays out of
+                        # preview_data: sending 8k floats twice made the modal
+                        # response megabytes wide for no display benefit.
+                        i_samples = data.get("i_samples")
+                        q_samples = data.get("q_samples")
+                        if isinstance(i_samples, list):
+                            analysis["samples"] = len(i_samples)
+                            analysis["preview_data"] = [{
+                                "sample_preview": i_samples[:8],
+                                "q_preview": (q_samples or [])[:8],
+                            }]
+                        elif isinstance(data.get("samples_real"), list):
+                            analysis["samples"] = len(data["samples_real"])
+                            analysis["preview_data"] = [{
+                                "sample_preview": data["samples_real"][:8],
+                                "q_preview": data.get("samples_imag", [])[:8],
+                            }]
+                        else:
+                            analysis["samples"] = 1
+                            analysis["preview_data"] = [data]
+
                         # Extract metadata if available
                         if "frequency_hz" in data:
                             analysis["frequency_analysis"]["center_hz"] = data["frequency_hz"]
-                        if "spectrum_data" in data and isinstance(data["spectrum_data"], list):
+                        if "sample_rate_hz" in data:
+                            analysis["frequency_analysis"]["sample_rate_hz"] = data["sample_rate_hz"]
+                        if isinstance(data.get("i_samples"), list):
+                            half = data.get("sample_rate_hz", 0) / 2.0
+                            analysis["frequency_analysis"]["range_hz"] = [
+                                data["frequency_hz"] - half,
+                                data["frequency_hz"] + half,
+                            ]
+                        if isinstance(data.get("spectrum_data"), list):
                             analysis["samples"] = len(data["spectrum_data"])
                 
                 return {
