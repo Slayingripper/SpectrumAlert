@@ -165,3 +165,44 @@ class TestCaptureIq:
             scanner.capture_iq(self._receiver(), 145e6, 0, 1024)
         with pytest.raises(SDRError):
             scanner.capture_iq(self._receiver(), 145e6, 240e3, 0)
+
+    def test_burst_keeps_a_local_dongle_open_once(self, monkeypatch):
+        """Fingerprint averaging must not reopen the USB device per capture."""
+        import numpy as np
+
+        from spectrum_alert.infrastructure.sdr import rtlsdr as rtlsdr_module
+        from spectrum_alert.infrastructure.sdr.scanner import SpectrumScanner
+
+        counters = {"open": 0, "close": 0, "read": 0}
+
+        class FakeDevice:
+            def __init__(self, device_index=0):
+                self.device_index = device_index
+
+            def open(self):
+                counters["open"] += 1
+
+            def close(self):
+                counters["close"] += 1
+
+            def set_center_freq(self, frequency):
+                pass
+
+            def set_sample_rate(self, sample_rate):
+                pass
+
+            def set_gain(self, gain):
+                pass
+
+            def read_samples(self, count):
+                counters["read"] += 1
+                return np.zeros(int(count), dtype=np.complex64)
+
+        monkeypatch.setattr(rtlsdr_module, "RTLSDRInterface", FakeDevice)
+        batches = SpectrumScanner().capture_iq_burst(
+            self._receiver(), 145e6, 2.048e6, 1024, captures=4
+        )
+
+        assert len(batches) == 4
+        assert all(batch.shape == (1024,) for batch in batches)
+        assert counters == {"open": 1, "close": 1, "read": 4}

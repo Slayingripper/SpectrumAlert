@@ -467,6 +467,49 @@ class SpectrumScanner:
 
     # ------------------------------------------------------------------ iq
 
+    def capture_iq_burst(
+        self,
+        receiver: SDRReceiver,
+        center_hz: float,
+        sample_rate_hz: float,
+        sample_count: int = 16384,
+        captures: int = 1,
+    ) -> list[np.ndarray]:
+        """Capture several IQ blocks, keeping a local dongle open throughout.
+
+        Fingerprinting averages several short bursts. Calling ``capture_iq``
+        once per burst reopened and reconfigured the USB device each time,
+        which cost more than the fingerprint maths. Remote ``rtl_tcp`` receivers
+        still go through the usual per-capture path.
+        """
+        captures = max(1, int(captures))
+        if captures == 1:
+            return [self.capture_iq(receiver, center_hz, sample_rate_hz, sample_count)]
+        if receiver.mode.value == "rtltcp":
+            return [
+                self.capture_iq(receiver, center_hz, sample_rate_hz, sample_count)
+                for _ in range(captures)
+            ]
+
+        if receiver.manual_rssi_db is not None:
+            raise SDRError(
+                f"{receiver.name}: a manual level override supplies no IQ samples. "
+                f"Clear the pinned level to fingerprint this receiver."
+            )
+
+        from spectrum_alert.infrastructure.sdr.rtlsdr import RTLSDRInterface
+
+        device = RTLSDRInterface(device_index=receiver.device_index or 0)
+        device.open()
+        try:
+            device.set_center_freq(float(center_hz))
+            device.set_sample_rate(float(sample_rate_hz))
+            if receiver.gain_db is not None:
+                device.set_gain(receiver.gain_db)
+            return [np.asarray(device.read_samples(int(sample_count))) for _ in range(captures)]
+        finally:
+            device.close()
+
     def capture_iq(
         self,
         receiver: SDRReceiver,

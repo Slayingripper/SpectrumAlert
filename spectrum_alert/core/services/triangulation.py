@@ -39,7 +39,10 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+import numpy as np
+
 from spectrum_alert.core.services.propagation import (
+    EARTH_RADIUS_M,
     METERS_PER_LATITUDE_DEGREE,
     clamp_distance_meters,
     haversine_meters,
@@ -258,6 +261,25 @@ def _huber(error_m: float, delta_m: float) -> float:
     return delta_m * (magnitude - 0.5 * delta_m)
 
 
+def _haversine_grid(
+    lats: np.ndarray,
+    lons: np.ndarray,
+    anchor_lat: float,
+    anchor_lon: float,
+) -> np.ndarray:
+    """Vectorised great-circle distance from a coordinate grid to one anchor."""
+    phi1 = np.radians(lats)
+    phi2 = math.radians(float(anchor_lat))
+    d_phi = phi2 - phi1
+    d_lambda = np.radians(lons - float(anchor_lon))
+    a = (
+        np.sin(d_phi / 2.0) ** 2
+        + math.cos(phi2) * np.cos(phi1) * np.sin(d_lambda / 2.0) ** 2
+    )
+    np.clip(a, 0.0, 1.0, out=a)
+    return EARTH_RADIUS_M * 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+
+
 def triangulate_position(
     readings: Sequence[TriangulationReading],
     reference_rssi_dbm: float,
@@ -328,17 +350,38 @@ def triangulate_position(
     best_score = objective(best_lat, best_lon)
 
     # Multi-resolution bounded grid search to land in the right basin.
+    # The grid is evaluated as whole NumPy arrays. The scalar version made
+    # roughly 65k Haversine calls per solve for eight receivers.
     for _ in range(GRID_PASSES):
         box_min_lat, box_min_lon, box_max_lat, box_max_lon = box
-        for yi in range(GRID_STEPS):
-            lat = box_min_lat + (yi / (GRID_STEPS - 1)) * (box_max_lat - box_min_lat)
-            for xi in range(GRID_STEPS):
-                lon = box_min_lon + (xi / (GRID_STEPS - 1)) * (box_max_lon - box_min_lon)
-                score = objective(lat, lon)
-                if score < best_score:
-                    best_score = score
-                    best_lat = lat
-                    best_lon = lon
+        grid_lats = np.linspace(box_min_lat, box_max_lat, GRID_STEPS)
+        grid_lons = np.linspace(box_min_lon, box_max_lon, GRID_STEPS)
+        lat_mesh, lon_mesh = np.meshgrid(grid_lats, grid_lons, indexing="ij")
+        scores = np.zeros_like(lat_mesh, dtype=float)
+
+        for anchor in anchors:
+            distance = _haversine_grid(lat_mesh, lon_mesh, anchor.lat, anchor.lon)
+            error = distance - anchor.distance_m
+            delta = max(anchor.distance_m * 0.5, 0.1 * spread_m, 100.0)
+            magnitude = np.abs(error)
+            loss = np.where(
+                magnitude <= delta,
+                0.5 * magnitude * magnitude,
+                delta * (magnitude - 0.5 * delta),
+            )
+            scores += anchor.weight * loss
+
+        if len(anchors) < 3:
+            offset = _haversine_grid(lat_mesh, lon_mesh, center_lat, center_lon)
+            scores += 0.01 * offset * offset
+
+        index = np.unravel_index(int(np.argmin(scores)), scores.shape)
+        candidate_score = float(scores[index])
+        if candidate_score < best_score:
+            best_score = candidate_score
+            best_lat = float(lat_mesh[index])
+            best_lon = float(lon_mesh[index])
+
         lat_half = (box_max_lat - box_min_lat) / 6.0
         lon_half = (box_max_lon - box_min_lon) / 6.0
         box = (
@@ -602,23 +645,18 @@ def likelihood_grid(
     else:
         typical = 250.0
 
-    grid: List[List[float]] = []
-    best = -math.inf
-    worst = math.inf
-    for yi in range(steps):
-        row: List[float] = []
-        lat = min_lat + (yi / max(1, steps - 1)) * (max_lat - min_lat)
-        for xi in range(steps):
-            lon = min_lon + (xi / max(1, steps - 1)) * (max_lon - min_lon)
-            error = 0.0
-            for reading, distance in zip(readings, modeled):
-                actual = haversine_meters(lat, lon, reading.lat, reading.lon)
-                error += abs(actual - distance)
-            score = math.exp(-error / (typical * 1.5))
-            best = max(best, score)
-            worst = min(worst, score)
-            row.append(score)
-        grid.append(row)
+    grid_lats = np.linspace(min_lat, max_lat, max(1, steps))
+    grid_lons = np.linspace(min_lon, max_lon, max(1, steps))
+    lat_mesh, lon_mesh = np.meshgrid(grid_lats, grid_lons, indexing="ij")
 
+    error = np.zeros_like(lat_mesh, dtype=float)
+    for reading, distance in zip(readings, modeled):
+        error += np.abs(
+            _haversine_grid(lat_mesh, lon_mesh, reading.lat, reading.lon) - distance
+        )
+
+    scores = np.exp(-error / (typical * 1.5))
+    best = float(np.max(scores))
+    worst = float(np.min(scores))
     span = max(1e-9, best - worst)
-    return [[(value - worst) / span for value in row] for row in grid]
+    return ((scores - worst) / span).tolist()

@@ -54,6 +54,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -237,31 +238,31 @@ def scaled_distance(
 # --------------------------------------------------------------------------
 
 
-def _skewness(values: np.ndarray) -> float:
+def _standardised_moments(
+    values: np.ndarray,
+    mean: Optional[float] = None,
+    std: Optional[float] = None,
+) -> Tuple[float, float]:
+    """Skewness and excess kurtosis in one pass.
+
+    The two used to compute the mean, standard deviation and standardised
+    array separately. Combining them halves the work over a large capture.
+    ``mean`` and ``std`` can be supplied when the caller already has them.
+    """
     if values.size < 2:
-        return 0.0
-    mean = float(values.mean())
-    std = float(values.std())
+        return 0.0, 0.0
+    if mean is None:
+        mean = float(values.mean())
+    if std is None:
+        std = float(values.std())
     if std <= 1e-12:
-        return 0.0
+        return 0.0, 0.0
     centred = (values - mean) / std
-    return float(np.mean(centred**3))
+    return float(np.mean(centred**3)), float(np.mean(centred**4) - 3.0)
 
 
-def _kurtosis(values: np.ndarray) -> float:
-    """Excess kurtosis: 0 for Gaussian, positive for impulsive signals."""
-    if values.size < 2:
-        return 0.0
-    mean = float(values.mean())
-    std = float(values.std())
-    if std <= 1e-12:
-        return 0.0
-    centred = (values - mean) / std
-    return float(np.mean(centred**4) - 3.0)
-
-
-def _complex_moment(iq: np.ndarray, order: int) -> float:
-    """Magnitude of the normalised complex moment ``|E[x^n]| / E[|x|^2]^(n/2)``.
+def _complex_moments(iq: np.ndarray, mean_power: float) -> Tuple[float, float]:
+    """Third- and fourth-order normalised complex moment magnitudes.
 
     These are the moments that respond to power-amplifier compression: a
     nonlinear PA folds the constellation and leaves a trace in the third and
@@ -270,12 +271,25 @@ def _complex_moment(iq: np.ndarray, order: int) -> float:
     the real part because the phase of the moment depends on carrier phase,
     which is not a device property; taking the magnitude keeps the PA signature
     while discarding the arbitrary rotation. Scale invariant by construction.
+
+    ``iq**2`` is formed once and reused for both orders; the previous code
+    recomputed the power and a full complex power separately for each order.
     """
-    power = float(np.mean(np.abs(iq) ** 2))
-    if power <= 1e-30:
-        return 0.0
-    moment = abs(complex(np.mean(iq**order)))
-    return moment / (power ** (order / 2.0))
+    if mean_power <= 1e-30:
+        return 0.0, 0.0
+    squared = iq * iq
+    third = abs(complex(np.mean(squared * iq)))
+    fourth = abs(complex(np.mean(squared * squared)))
+    return (
+        third / (mean_power ** 1.5),
+        fourth / (mean_power ** 2.0),
+    )
+
+
+@lru_cache(maxsize=8)
+def _hann_window(size: int) -> np.ndarray:
+    """Cache the window: repeated fingerprints use a handful of capture sizes."""
+    return np.hanning(size)
 
 
 def _spectral_shape(
@@ -295,10 +309,13 @@ def _spectral_shape(
         power = np.asarray(powers, dtype=float)
     else:
         size = int(2 ** math.ceil(math.log2(max(iq.size, 256))))
-        window = np.hanning(iq.size)
-        spectrum = np.fft.fftshift(np.fft.fft(iq * window, n=size))
-        power = (np.abs(spectrum) ** 2).astype(float)
-        freqs = np.fft.fftshift(np.fft.fftfreq(size, d=1.0 / sample_rate_hz))
+        # IQ is complex, so this must be a full complex FFT; rfft only accepts
+        # real input. Keep the non-negative half directly instead of shifting
+        # the full spectrum and then filtering half of it away.
+        spectrum = np.fft.fft(iq * _hann_window(iq.size), n=size)
+        half = size // 2 + 1
+        power = (np.abs(spectrum[:half]) ** 2).astype(float)
+        freqs = np.fft.fftfreq(size, d=1.0 / sample_rate_hz)[:half]
 
     if freqs.size != power.size or freqs.size < 2:
         return 0.0, 0.0, 0.0
@@ -377,7 +394,12 @@ def extract_signature(
     else:
         rise_rate = fall_rate = lag1 = 0.0
 
-    mean_power = float(np.mean(np.abs(iq) ** 2))
+    # One magnitude array serves the envelope statistics, the power and the
+    # crest factor. The old code recomputed abs(iq) for each.
+    mean_power = float(np.mean(envelope * envelope))
+    skew, kurtosis = _standardised_moments(envelope, mean_env, std_env)
+    moment3, moment4 = _complex_moments(iq, mean_power)
+
     # Crest factor in dB: a heavily compressed signal sits close to 0 dB, a
     # linear one much lower. Ratio of powers, so gain cancels.
     crest_db = (
@@ -392,10 +414,10 @@ def extract_signature(
 
     values = (
         _safe(cv),
-        _safe(_skewness(envelope)),
-        _safe(_kurtosis(envelope)),
-        _safe(_complex_moment(iq, 3)),
-        _safe(_complex_moment(iq, 4)),
+        _safe(skew),
+        _safe(kurtosis),
+        _safe(moment3),
+        _safe(moment4),
         _safe(rise_rate),
         _safe(fall_rate),
         _safe(lag1),

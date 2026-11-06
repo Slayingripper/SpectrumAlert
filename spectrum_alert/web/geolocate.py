@@ -525,20 +525,22 @@ class GeolocationService:
             raise HTTPException(status_code=404, detail=f"Unknown receiver {request.sdrId!r}")
 
         sample_rate = float(request.sampleRateHz)
+        try:
+            sample_batches = self.scanner.capture_iq_burst(
+                receiver,
+                center_hz=float(request.frequencyHz),
+                sample_rate_hz=sample_rate,
+                sample_count=int(request.samplesPerCapture),
+                captures=max(1, int(request.captures)),
+            )
+        except SDRError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"{receiver.name} could not be captured for fingerprinting: {exc}",
+            ) from exc
+
         vectors = []
-        for _ in range(max(1, int(request.captures))):
-            try:
-                samples = self.scanner.capture_iq(
-                    receiver,
-                    center_hz=float(request.frequencyHz),
-                    sample_rate_hz=sample_rate,
-                    sample_count=int(request.samplesPerCapture),
-                )
-            except SDRError as exc:
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"{receiver.name} could not be captured for fingerprinting: {exc}",
-                ) from exc
+        for samples in sample_batches:
             if samples is None or len(samples) == 0:
                 raise HTTPException(
                     status_code=503,

@@ -491,6 +491,13 @@ class FingerprintScanner:
         self.device = "alpha"
         self.calls = 0
 
+    def capture_iq_burst(self, receiver, center_hz, sample_rate_hz, sample_count,
+                         captures=1):
+        return [
+            self.capture_iq(receiver, center_hz, sample_rate_hz, sample_count)
+            for _ in range(max(1, int(captures)))
+        ]
+
     def capture_iq(self, receiver, center_hz, sample_rate_hz, sample_count,
                    integration_seconds=0.0):
         import numpy as np
