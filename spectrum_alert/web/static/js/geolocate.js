@@ -1164,6 +1164,20 @@
         });
         html += '</tbody></table>';
 
+        var quality = String(estimate.quality || 'unknown');
+        var reasons = (estimate.qualityReasons || []).join('; ');
+        html += '<p class="sa-fit">' +
+            '<span class="sa-fit__label">Fit quality</span>' +
+            '<strong class="sa-fit__quality" data-quality="' + escapeHtml(quality) + '">' +
+                escapeHtml(quality) + '</strong>' +
+            '<span>Uncertainty &plusmn;' +
+                Math.round(Number(estimate.uncertaintyMeters) || 0) + ' m</span>' +
+            '<span>RMS ' + Math.round(Number(estimate.rmsResidualMeters) || 0) + ' m / ' +
+                (Number(estimate.rmsRssiResidual || 0)).toFixed(1) + ' dB</span>' +
+            '<span>' + (Number(estimate.anchorCount) || 0) + ' receivers</span>' +
+            (reasons ? '<span class="sa-fit__reason">' + escapeHtml(reasons) + '</span>' : '') +
+            '</p>';
+
         html += '<p class="sa-hint">Model: RSSI = ' + result.model.referenceRssiDbm +
             ' &minus; 10&times;' + result.model.pathLossExponent + '&times;log&#8321;&#8320;(m), band ' +
             escapeHtml(result.model.band || '?') + '</p>';

@@ -2679,3 +2679,40 @@ body.sa-tour .sa-step {
 .sa-waterfall-wrap .sa-axis {
     bottom: 0;
 }
+
+/* Triangulation fit summary: quality, uncertainty and residuals in one row,
+   instead of leaving them only in the map popup. */
+.sa-fit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 16px;
+    margin: 12px 0 6px;
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--sa-btn-radius);
+    background: var(--bg-tertiary);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.sa-fit__label {
+    font-size: var(--sa-label);
+    font-weight: 600;
+    letter-spacing: var(--sa-label-tracking);
+    text-transform: uppercase;
+    color: var(--sa-label-color);
+}
+
+.sa-fit__quality {
+    text-transform: capitalize;
+    color: var(--text-primary);
+}
+
+.sa-fit__quality[data-quality='good'] { color: var(--success); }
+.sa-fit__quality[data-quality='fair'] { color: var(--warning); }
+.sa-fit__quality[data-quality='poor'] { color: var(--danger); }
+
+.sa-fit__reason {
+    color: var(--text-secondary);
+}
