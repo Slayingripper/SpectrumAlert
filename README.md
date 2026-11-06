@@ -379,18 +379,21 @@ Key design rules:
 
 ## Documentation
 
-The wiki-ready documentation is under [`docs/wiki/`](docs/wiki/):
+The full documentation is published in the
+[GitHub Wiki](https://github.com/Slayingripper/SpectrumAlert/wiki):
 
-- [Home](docs/wiki/Home.md)
-- [Installation](docs/wiki/Installation.md)
-- [Quick Start](docs/wiki/Quick-Start.md)
-- [Web Dashboard](docs/wiki/Web-Dashboard.md)
-- [CLI Reference](docs/wiki/CLI-Reference.md)
-- [Docker](docs/wiki/Docker.md)
-- [Configuration](docs/wiki/Configuration.md)
-- [Troubleshooting](docs/wiki/Troubleshooting.md)
-- [FAQ](docs/wiki/FAQ.md)
+- [Home](https://github.com/Slayingripper/SpectrumAlert/wiki)
+- [Installation](https://github.com/Slayingripper/SpectrumAlert/wiki/Installation)
+- [Quick Start](https://github.com/Slayingripper/SpectrumAlert/wiki/Quick-Start)
+- [Web Dashboard](https://github.com/Slayingripper/SpectrumAlert/wiki/Web-Dashboard)
+- [CLI Reference](https://github.com/Slayingripper/SpectrumAlert/wiki/CLI-Reference)
+- [Docker](https://github.com/Slayingripper/SpectrumAlert/wiki/Docker)
+- [Configuration](https://github.com/Slayingripper/SpectrumAlert/wiki/Configuration)
+- [Data and Training](https://github.com/Slayingripper/SpectrumAlert/wiki/Data-and-Training)
+- [Troubleshooting](https://github.com/Slayingripper/SpectrumAlert/wiki/Troubleshooting)
+- [FAQ](https://github.com/Slayingripper/SpectrumAlert/wiki/FAQ)
 
+Source copies of the wiki pages are kept under [`docs/wiki/`](docs/wiki/).
 Configuration file reference: [`docs/configuration.md`](docs/configuration.md).
 
 ---

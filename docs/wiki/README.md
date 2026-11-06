@@ -1,5 +1,8 @@
 # Publishing these pages to GitHub Wiki
 
+The wiki is published at
+<https://github.com/Slayingripper/SpectrumAlert/wiki>.
+
 GitHub hosts wiki pages in a separate repository. This directory is the
 source-controlled copy of the wiki content.
 
