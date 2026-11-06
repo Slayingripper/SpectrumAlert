@@ -26,7 +26,7 @@ Architecture:
 __version__ = "1.1.0"
 __author__ = "SpectrumAlert Team"
 __email__ = "spectrum-alert@example.com"
-__license__ = "MIT"
+__license__ = "GPL-3.0-only"
 
 # Public API exports
 from spectrum_alert.core.domain.models import (

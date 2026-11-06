@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue)
+![License](https://img.shields.io/badge/License-GPL--3.0-blue)
 
 ![SpectrumAlert dashboard](docs/assets/screenshots/dashboard-dark.png)
 
@@ -423,4 +423,5 @@ Configuration file reference: [`docs/configuration.md`](docs/configuration.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+GNU General Public License v3.0 only. See [LICENSE](LICENSE) or
+<https://www.gnu.org/licenses/gpl-3.0.html>.
