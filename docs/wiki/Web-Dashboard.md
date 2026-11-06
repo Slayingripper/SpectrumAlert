@@ -51,6 +51,9 @@ Key requirements:
 - Most receivers reporting a PMR446 channel at least 20 dB above their own noise
   floor before a channel counts as active
 
+See [Triangulation](Triangulation.md) for the solver, fit-quality grading,
+confidence ellipse and residual table.
+
 ## Screens and states
 
 The UI distinguishes:

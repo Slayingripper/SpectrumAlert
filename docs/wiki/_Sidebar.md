@@ -4,6 +4,7 @@
 - [Installation](Installation)
 - [Quick Start](Quick-Start)
 - [Web Dashboard](Web-Dashboard)
+- [Triangulation](Triangulation)
 - [CLI Reference](CLI-Reference)
 - [Docker](Docker)
 - [Configuration](Configuration)

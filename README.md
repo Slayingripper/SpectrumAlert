@@ -158,6 +158,28 @@ The screenshots use a synthetic IQ source so they can be reproduced without a
 physical dongle. The interface, storage format and detection pipeline are the
 same as a live receiver.
 
+### Triangulation
+
+![Triangulation result](docs/assets/screenshots/triangulation-dark.png)
+
+Each enabled receiver contributes an RSSI reading. The path-loss model converts
+those readings into distance circles; the solver finds the position that fits
+all circles best under a Huber loss, so one multipath-faded receiver cannot drag
+the fix away.
+
+The screenshot shows a three-receiver fix with:
+
+- Blue pins for the receivers
+- A green emitter marker and confidence circle
+- A **good** fit-quality result
+- Modelled distances and signed residuals for every receiver
+- The exact path-loss model used for the solve
+
+Triangulation needs at least two receivers with coordinates; three or more are
+needed for a meaningful fix. See the
+[triangulation guide](docs/wiki/Triangulation.md) for requirements and output
+fields.
+
 ---
 
 ## Features
@@ -386,6 +408,7 @@ The full documentation is published in the
 - [Installation](https://github.com/Slayingripper/SpectrumAlert/wiki/Installation)
 - [Quick Start](https://github.com/Slayingripper/SpectrumAlert/wiki/Quick-Start)
 - [Web Dashboard](https://github.com/Slayingripper/SpectrumAlert/wiki/Web-Dashboard)
+- [Triangulation](https://github.com/Slayingripper/SpectrumAlert/wiki/Triangulation)
 - [CLI Reference](https://github.com/Slayingripper/SpectrumAlert/wiki/CLI-Reference)
 - [Docker](https://github.com/Slayingripper/SpectrumAlert/wiki/Docker)
 - [Configuration](https://github.com/Slayingripper/SpectrumAlert/wiki/Configuration)

@@ -15,6 +15,7 @@ interfaces share one detector, one storage format and one data directory.
 | [Installation](Installation.md) | Local install, SDR permissions, Docker |
 | [Quick Start](Quick-Start.md) | First dashboard session and first scan |
 | [Web Dashboard](Web-Dashboard.md) | Modules, workflow and screenshots |
+| [Triangulation](Triangulation.md) | Multi-receiver locating, fit quality and residuals |
 | [CLI Reference](CLI-Reference.md) | Terminal commands and options |
 | [Docker](Docker.md) | Compose services, USB access, ports |
 | [Data and Training](Data-and-Training.md) | Capture storage, IQ fixtures, model training |
