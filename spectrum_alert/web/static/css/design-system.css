@@ -2669,3 +2669,13 @@ body.sa-tour .sa-step {
     font-size: 0.75rem;
     line-height: 1.55;
 }
+
+/* The waterfall's frequency axis used to sit on top of the canvas, hiding the
+   first scan row at the bottom. Reserve a gutter for the axis instead. */
+.sa-waterfall-wrap {
+    padding-bottom: 18px;
+}
+
+.sa-waterfall-wrap .sa-axis {
+    bottom: 0;
+}

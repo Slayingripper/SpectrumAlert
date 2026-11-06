@@ -589,18 +589,30 @@ def train_models(
     console.print(f"Using {days} days of training data")
     
     try:
+        from spectrum_alert.application.use_cases.model_training import ModelTrainingUseCase
         from spectrum_alert.infrastructure.storage import DataStorage
-        
+
         storage = DataStorage()
         training_data = storage.load_training_data(mode=mode.value, days=days)
-        
+
         if training_data is None or len(training_data) == 0:
             console.print("[red]No training data available[/red]")
             raise typer.Exit(1)
-        
+
         console.print(f"[green]Loaded {len(training_data)} training samples[/green]")
-        console.print("[yellow]Model training would be implemented here[/yellow]")
-        
+        trainer = ModelTrainingUseCase(storage)
+        if not trainer.train_models(mode=mode, days=days):
+            console.print("[red]Training did not produce a model[/red]")
+            raise typer.Exit(1)
+
+        models = trainer.list_models()
+        if models:
+            latest = models[0]
+            console.print(f"[green]Model written:[/green] {latest['file']}")
+        console.print("[green]Training completed successfully[/green]")
+
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]Training failed: {e}[/red]")
         raise typer.Exit(1)

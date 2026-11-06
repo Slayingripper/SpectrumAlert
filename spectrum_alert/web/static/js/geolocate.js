@@ -260,6 +260,18 @@
             window.addEventListener('resize', sizeWaterfall);
         }
 
+        // The workspace performs its first scan on page load, while its tab is
+        // hidden. The waterfall then draws into a zero-sized canvas and the
+        // tab looked empty when the operator finally opened it. Redraw once the
+        // canvas actually enters the viewport.
+        if (typeof IntersectionObserver === 'function') {
+            new IntersectionObserver(function (entries) {
+                if (!entries.some(function (entry) { return entry.isIntersecting; })) return;
+                sizeWaterfall();
+                if (state.frames.length) replayFrames();
+            }).observe(canvas);
+        }
+
         $('sa-set-target').addEventListener('click', function () {
             var hz = Number($('sa-target-freq').value);
             if (isFinite(hz)) $('sa-center').value = String(Math.round(hz));
@@ -270,10 +282,27 @@
         var min = displayFloor;
         var max = displayCeiling;
         var t = Math.max(0, Math.min(1, (dbm - min) / Math.max(1e-6, max - min)));
+
+        // Subdued thermal ramp: near-black noise -> deep blue -> teal -> amber
+        // -> red at the strongest bin. The previous blue-to-red interpolation
+        // painted the entire noise floor saturated blue and read like an alarm
+        // even when nothing was present.
+        var stops = [
+            [8, 15, 28],
+            [18, 48, 92],
+            [32, 122, 148],
+            [224, 164, 66],
+            [235, 82, 72]
+        ];
+        var scaled = t * (stops.length - 1);
+        var index = Math.min(stops.length - 2, Math.floor(scaled));
+        var fraction = scaled - index;
+        var a = stops[index];
+        var b = stops[index + 1];
         return [
-            Math.round(255 * t),
-            Math.round(200 * (1 - Math.abs(t - 0.5) * 2)),
-            Math.round(255 * (1 - t))
+            Math.round(a[0] + (b[0] - a[0]) * fraction),
+            Math.round(a[1] + (b[1] - a[1]) * fraction),
+            Math.round(a[2] + (b[2] - a[2]) * fraction)
         ];
     }
 
